@@ -230,9 +230,16 @@ def admin():
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Traer todas las tareas con JOIN para obtener el nombre de usuario
+    # SOLUCIÓN 1: Mantener el orden de columnas original para que no se rompan 
+    # los índices en el HTML (tarea[4] sigue siendo completada)
     cursor.execute("""
-        SELECT tareas.id, tareas.codigo, tareas.descripcion, tareas.categoria, tareas.fecha, tareas.completada,
+        SELECT tareas.id, 
+               tareas.descripcion, 
+               tareas.categoria, 
+               tareas.fecha, 
+               tareas.completada, 
+               tareas.codigo,
+               tareas.usuario_id,
                usuarios.username AS usuario
         FROM tareas
         LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
@@ -252,9 +259,9 @@ def admin():
     completadas = cursor.fetchone()[0]
     pendientes = total_tareas - completadas
 
-    # Opcional: contar por categorías
-    cursor.execute("SELECT categoria, COUNT(*) as cantidad FROM tareas GROUP BY categoria")
-    categorias = cursor.fetchall()
+    # SOLUCIÓN 2: Formato correcto de categorías para tu select del HTML
+    cursor.execute("SELECT DISTINCT categoria FROM tareas")
+    categorias = [row["categoria"] for row in cursor.fetchall() if row["categoria"]]
 
     conn.close()
 
@@ -266,9 +273,9 @@ def admin():
         total=total_tareas,
         completadas=completadas,
         pendientes=pendientes,
+        exportadas=total_tareas, # Faltaba esta variable que usas en los KPIs
         categorias=categorias
     )
-
 
 
 

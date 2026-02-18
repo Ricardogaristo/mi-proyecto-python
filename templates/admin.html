@@ -124,40 +124,47 @@
 
 <!-- Scripts de filtrado rápido -->
 <script>
-document.getElementById("buscador").addEventListener("keyup", function() {
-    let filtro = this.value.toLowerCase();
-    let filas = document.querySelectorAll("tbody tr");
-    filas.forEach(fila => {
-        fila.style.display = fila.innerText.toLowerCase().includes(filtro) ? "" : "none";
-    });
-});
+function aplicarFiltros() {
+    // 1. Capturamos todos los valores de los filtros
+    let buscador = document.getElementById("buscador").value.toLowerCase();
+    let filtroEstado = document.getElementById("filtro_estado").value;
+    let filtroCategoria = document.getElementById("filtro_categoria").value;
+    let filtroCodigo = document.getElementById("filtro_codigo").value.toLowerCase();
 
-document.getElementById("filtro_estado").addEventListener("change", function() {
-    let estado = this.value;
+    // 2. Seleccionamos todas las filas de la tabla
     let filas = document.querySelectorAll("tbody tr");
-    filas.forEach(fila => {
-        let cell = fila.cells[5].innerText;
-        fila.style.display = (estado === "" || cell === estado) ? "" : "none";
-    });
-});
 
-document.getElementById("filtro_categoria").addEventListener("change", function() {
-    let cat = this.value;
-    let filas = document.querySelectorAll("tbody tr");
     filas.forEach(fila => {
-        let cell = fila.cells[3].innerText;
-        fila.style.display = (cat === "" || cell === cat) ? "" : "none";
-    });
-});
+        // Extraemos el contenido de las celdas específicas
+        // Recordatorio: cells[1] es Código, cells[3] es Categoría, cells[5] es Estado
+        let textoFila = fila.innerText.toLowerCase();
+        let textoCodigo = fila.cells[1].innerText.toLowerCase();
+        let textoCategoria = fila.cells[3].innerText.trim();
+        let textoEstado = fila.cells[5].innerText.trim();
 
-document.getElementById("filtro_codigo").addEventListener("keyup", function() {
-    let codigo = this.value.toLowerCase();
-    let filas = document.querySelectorAll("tbody tr");
-    filas.forEach(fila => {
-        let cell = fila.cells[1].innerText.toLowerCase();
-        fila.style.display = cell.includes(codigo) ? "" : "none";
+        // 3. Verificamos si la fila cumple TODAS las condiciones
+        let cumpleBuscador = buscador === "" || textoFila.includes(buscador);
+        let cumpleCodigo = filtroCodigo === "" || textoCodigo.includes(filtroCodigo);
+        let cumpleEstado = filtroEstado === "" || textoEstado === filtroEstado;
+        
+        // Manejo especial para categorías "General" o vacías
+        let categoriaNormalizada = textoCategoria === "General" ? "" : textoCategoria;
+        let cumpleCategoria = filtroCategoria === "" || textoCategoria === filtroCategoria;
+
+        // 4. Decisión final: Si cumple todo, se muestra, si no, se oculta
+        if (cumpleBuscador && cumpleCodigo && cumpleEstado && cumpleCategoria) {
+            fila.style.display = "";
+        } else {
+            fila.style.display = "none";
+        }
     });
-});
+}
+
+// 5. Escuchamos cambios en todos los inputs para ejecutar la misma función
+document.getElementById("buscador").addEventListener("keyup", aplicarFiltros);
+document.getElementById("filtro_codigo").addEventListener("keyup", aplicarFiltros);
+document.getElementById("filtro_estado").addEventListener("change", aplicarFiltros);
+document.getElementById("filtro_categoria").addEventListener("change", aplicarFiltros);
 </script>
 
 {% endblock %}
