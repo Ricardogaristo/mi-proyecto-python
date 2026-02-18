@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="card shadow-sm mt-4">
+    <div class="card-header bg-primary text-white">
+        ✏ Editar Tarea
+    </div>
+    <div class="card-body">
+
+        <form method="POST" class="row g-3">
+
+            <!-- Código -->
+            <div class="col-md-3">
+                <label class="form-label">Código</label>
+                <input type="text" name="codigo" class="form-control" value="{{ tarea[5] if tarea|length > 5 else '' }}" required>
+            </div>
+
+            <!-- Descripción -->
+            <div class="col-md-4">
+                <label class="form-label">Descripción</label>
+                <input type="text" name="descripcion" class="form-control" value="{{ tarea[1] }}" required>
+            </div>
+
+            <!-- Categoría -->
+            <div class="col-md-3">
+                <label class="form-label">Categoría</label>
+                <input type="text" name="categoria" class="form-control" value="{{ tarea[2] }}">
+            </div>
+
+            <!-- Fecha -->
+            <div class="col-md-2">
+                <label class="form-label">Fecha</label>
+                <input type="date" name="fecha" class="form-control" value="{{ tarea[3] }}">
+            </div>
+
+            <!-- Estado -->
+            <div class="col-md-3">
+                <label class="form-label">Estado</label>
+                <select name="completada" class="form-select">
+                    <option value="0" {% if tarea[4] == 0 %}selected{% endif %}>Pendiente</option>
+                    <option value="1" {% if tarea[4] == 1 %}selected{% endif %}>Completada</option>
+                </select>
+            </div>
+
+            <!-- Botones -->
+            <div class="col-12 mt-3 d-flex gap-2">
+                <button type="submit" class="btn btn-success">💾 Guardar Cambios</button>
+                <a href="/" class="btn btn-secondary">Cancelar</a>
+            </div>
+
+        </form>
+
+    </div>
+</div>
+
+{% endblock %}

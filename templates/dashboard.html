@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 class="mb-4 fw-bold">📊 Panel de Control</h2>
+
+<div class="row g-4">
+
+    <div class="col-md-4">
+        <div class="card shadow border-0 text-center p-4">
+            <div class="display-6">📋</div>
+            <h2 class="fw-bold mt-2">{{ total }}</h2>
+            <p class="text-muted mb-0">Total de tareas</p>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card shadow border-0 text-center p-4 bg-success text-white">
+            <div class="display-6">✔</div>
+            <h2 class="fw-bold mt-2">{{ completadas }}</h2>
+            <p class="mb-0">Completadas</p>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card shadow border-0 text-center p-4 bg-warning">
+            <div class="display-6">⏳</div>
+            <h2 class="fw-bold mt-2">{{ pendientes }}</h2>
+            <p class="mb-0">Pendientes</p>
+        </div>
+    </div>
+
+</div>
+
+<hr class="my-5">
+
+<div class="card shadow border-0 p-4 mb-4">
+    <h5 class="mb-3">📈 Progreso General</h5>
+
+    <div class="progress" style="height: 25px;">
+        <div class="progress-bar bg-success progress-bar-striped progress-bar-animated"
+             role="progressbar"
+             style="width: {{ porcentaje }}%">
+            {{ porcentaje }}%
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+
+    <div class="col-md-6">
+        <div class="card shadow border-0 p-4">
+            <h5>📌 Información</h5>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    Usuario activo: <strong>{{ session['user'] }}</strong>
+                </li>
+                <li class="list-group-item">
+                    Fecha actual: <strong>{{ fecha_actual }}</strong>
+                </li>
+                <li class="list-group-item">
+                    Nivel de productividad:
+                    <span class="badge bg-{{ color_nivel }}">
+                        {{ nivel }}
+                    </span>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card shadow border-0 p-4">
+            <h5>⚡ Accesos rápidos</h5>
+
+            <div class="d-grid gap-2 mb-3">
+                <a href="/" class="btn btn-outline-primary">
+                    📋 Ver tareas
+                </a>
+
+                <a href="/exportar" class="btn btn-outline-success">
+                    📥 Descargar Excel
+                </a>
+
+                <a href="/logout" class="btn btn-outline-danger">
+                    🚪 Cerrar sesión
+                </a>
+            </div>
+
+            <!-- NUEVO: Últimas tareas con código -->
+            <h6 class="mt-4 mb-2">🆕 Últimas tareas</h6>
+            <ul class="list-group list-group-flush">
+                {% for tarea in ultimas_tareas %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>
+                        [{{ tarea[5] if tarea|length > 5 else '-' }}] {{ tarea[1] }}
+                    </span>
+                    {% if tarea[4] == 1 %}
+                        <span class="badge bg-success">✔</span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark">⏳</span>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}

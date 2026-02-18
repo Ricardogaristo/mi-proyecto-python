@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 class="mb-4 fw-bold">⚙ Panel Administrativo</h2>
+
+<!-- Filtrado rápido -->
+<div class="row mb-3">
+    <div class="col-md-3">
+        <input type="text" id="buscador" class="form-control" placeholder="Buscar tareas...">
+    </div>
+    <div class="col-md-3">
+        <select id="filtro_estado" class="form-select">
+            <option value="">Todos los estados</option>
+            <option value="Pendiente">Pendiente</option>
+            <option value="Completada">Completada</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <select id="filtro_categoria" class="form-select">
+            <option value="">Todas las categorías</option>
+            {% for cat in categorias %}
+                <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <input type="text" id="filtro_codigo" class="form-control" placeholder="Filtrar por código">
+    </div>
+</div>
+
+<!-- KPIs resumen -->
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="card text-center shadow p-3">
+            <div class="display-6">📋</div>
+            <h3>{{ total }}</h3>
+            <p class="mb-0">Total tareas</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center shadow p-3 bg-success text-white">
+            <div class="display-6">✔</div>
+            <h3>{{ completadas }}</h3>
+            <p class="mb-0">Completadas</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center shadow p-3 bg-warning">
+            <div class="display-6">⏳</div>
+            <h3>{{ pendientes }}</h3>
+            <p class="mb-0">Pendientes</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center shadow p-3 bg-info text-dark">
+            <div class="display-6">📥</div>
+            <h3>{{ exportadas }}</h3>
+            <p class="mb-0">Exportadas</p>
+        </div>
+    </div>
+</div>
+
+<!-- Tabla de tareas -->
+<div class="table-responsive">
+    <table class="table table-hover align-middle">
+        <thead class="table-dark">
+            <tr>
+                <th>ID</th>
+                <th>Código</th>
+                <th>Descripción</th>
+                <th>Categoría</th>
+                <th>Fecha</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tarea in tareas %}
+            <tr>
+                <td>{{ tarea[0] }}</td>
+                <td>{{ tarea[5] if tarea|length > 5 else '-' }}</td>
+                <td>{{ tarea[1] }}</td>
+                <td>{{ tarea[2] if tarea[2] else "General" }}</td>
+                <td>{{ tarea[3] if tarea[3] else "-" }}</td>
+                <td>
+                    {% if tarea[4] == 1 %}
+                        <span class="badge bg-success">Completada</span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark">Pendiente</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if tarea[4] == 0 %}
+                        <a href="/completar/{{ tarea[0] }}" class="btn btn-sm btn-success">✔ Completar</a>
+                    {% else %}
+                        <button class="btn btn-sm btn-secondary" disabled>✔ Hecha</button>
+                    {% endif %}
+                    <a href="/editar/{{ tarea[0] }}" class="btn btn-sm btn-warning">✏ Editar</a>
+                    <a href="/eliminar/{{ tarea[0] }}" class="btn btn-sm btn-danger"
+                       onclick="return confirm('¿Seguro que deseas eliminar esta tarea?');">🗑 Borrar</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Paginación simple -->
+<nav class="mt-4">
+    <ul class="pagination justify-content-center">
+        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+            <a class="page-link" href="?page={{ page - 1 }}">Anterior</a>
+        </li>
+        {% for p in range(1, total_pages + 1) %}
+        <li class="page-item {% if p == page %}active{% endif %}">
+            <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+            <a class="page-link" href="?page={{ page + 1 }}">Siguiente</a>
+        </li>
+    </ul>
+</nav>
+
+<!-- Scripts de filtrado rápido -->
+<script>
+document.getElementById("buscador").addEventListener("keyup", function() {
+    let filtro = this.value.toLowerCase();
+    let filas = document.querySelectorAll("tbody tr");
+    filas.forEach(fila => {
+        fila.style.display = fila.innerText.toLowerCase().includes(filtro) ? "" : "none";
+    });
+});
+
+document.getElementById("filtro_estado").addEventListener("change", function() {
+    let estado = this.value;
+    let filas = document.querySelectorAll("tbody tr");
+    filas.forEach(fila => {
+        let cell = fila.cells[5].innerText;
+        fila.style.display = (estado === "" || cell === estado) ? "" : "none";
+    });
+});
+
+document.getElementById("filtro_categoria").addEventListener("change", function() {
+    let cat = this.value;
+    let filas = document.querySelectorAll("tbody tr");
+    filas.forEach(fila => {
+        let cell = fila.cells[3].innerText;
+        fila.style.display = (cat === "" || cell === cat) ? "" : "none";
+    });
+});
+
+document.getElementById("filtro_codigo").addEventListener("keyup", function() {
+    let codigo = this.value.toLowerCase();
+    let filas = document.querySelectorAll("tbody tr");
+    filas.forEach(fila => {
+        let cell = fila.cells[1].innerText.toLowerCase();
+        fila.style.display = cell.includes(codigo) ? "" : "none";
+    });
+});
+</script>
+
+{% endblock %}

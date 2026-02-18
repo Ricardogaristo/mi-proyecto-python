@@ -1,0 +1,26 @@
+[
+    {
+        "descripcion": "guardar ropa",
+        "completada": false
+    },
+    {
+        "descripcion": "php",
+        "completada": false
+    },
+    {
+        "descripcion": "python",
+        "completada": true
+    },
+    {
+        "descripcion": "angular",
+        "completada": false
+    },
+    {
+        "descripcion": "c#",
+        "completada": false
+    },
+    {
+        "descripcion": "formacion",
+        "completada": false
+    }
+]
