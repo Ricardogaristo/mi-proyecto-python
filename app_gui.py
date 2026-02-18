@@ -10,6 +10,27 @@ def get_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+def agregar_columna_usuario():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Verificar si ya existe la columna 'usuario'
+    cursor.execute("PRAGMA table_info(tareas)")
+    columnas = [col[1] for col in cursor.fetchall()]
+    
+    if "usuario" not in columnas:
+        cursor.execute("ALTER TABLE tareas ADD COLUMN usuario TEXT")
+        conn.commit()
+        print("Columna 'usuario' agregada correctamente.")
+    else:
+        print("La columna 'usuario' ya existe.")
+
+    conn.close()
+
+# Ejecutar solo una vez
+agregar_columna_usuario()
+
+
 def agregar_columna_codigo():
     conn = get_connection()
     cursor = conn.cursor()
@@ -28,6 +49,16 @@ def agregar():
     desc = entrada_desc.get().strip()
     cat = entrada_cat.get().strip()
     fecha = entrada_fecha.get().strip()
+
+    # ... (captura de datos del form)
+    user_id = session.get("user_id") # Obtenemos el ID del que está logueado
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO tareas (descripcion, categoria, fecha, codigo, usuario_id) VALUES (?, ?, ?, ?, ?)",
+        (descripcion, categoria, fecha, codigo, user_id)
+    )
 
     if not desc:
         messagebox.showwarning("Error", "La descripción es obligatoria")
@@ -70,6 +101,9 @@ def completar():
     conn.commit()
     conn.close()
     mostrar()
+
+
+
 
 def limpiar():
     entrada_codigo.delete(0, tk.END)
