@@ -218,51 +218,62 @@ def agregar():
 @app.route("/admin")
 @login_required
 def admin():
-    # Solo puede acceder el admin
     if session.get("es_admin") != 1:
         return redirect("/")
 
-    # --- Paginación ---
+    # 1. Capturar filtros primero
+    filtro_cat = request.args.get("categoria", "")
+    filtro_est = request.args.get("estado", "")
+    
+    # 2. Si hay filtros nuevos, la página DEBE ser la 1 por defecto 
+    # para evitar que el offset nos mande a una página vacía
     page = request.args.get("page", 1, type=int)
+    
     per_page = 10
     offset = (page - 1) * per_page
 
     conn = get_connection()
     cursor = conn.cursor()
 
-    # SOLUCIÓN 1: Mantener el orden de columnas original para que no se rompan 
-    # los índices en el HTML (tarea[4] sigue siendo completada)
-    cursor.execute("""
-        SELECT tareas.id, 
-               tareas.descripcion, 
-               tareas.categoria, 
-               tareas.fecha, 
-               tareas.completada, 
-               tareas.codigo,
-               tareas.usuario_id,
-               usuarios.username AS usuario
-        FROM tareas
-        LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
-        ORDER BY tareas.id DESC
+    # 3. Construir la base de la consulta filtrada
+    query_base = "FROM tareas WHERE 1=1"
+    params = []
+
+    if filtro_cat:
+        query_base += " AND categoria = ?"
+        params.append(filtro_cat)
+    
+    if filtro_est:
+        valor_est = 1 if filtro_est == "Completada" else 0
+        query_base += " AND completada = ?"
+        params.append(valor_est)
+
+    # 4. CONTAR TOTAL real basado en el FILTRO
+    cursor.execute(f"SELECT COUNT(*) {query_base}", params)
+    total_filtrado = cursor.fetchone()[0]
+    
+    # Recalcular total de páginas para este filtro específico
+    total_pages = (total_filtrado + per_page - 1) // per_page if total_filtrado > 0 else 1
+
+    # SEGURIDAD: Si la página solicitada es mayor a las que existen con el filtro, volver a la 1
+    if page > total_pages:
+        page = 1
+        offset = 0
+
+    # 5. Obtener los resultados finales
+    cursor.execute(f"""
+        SELECT id, descripcion, categoria, fecha, completada, codigo, usuario_id
+        {query_base}
+        ORDER BY id DESC
         LIMIT ? OFFSET ?
-    """, (per_page, offset))
+    """, params + [per_page, offset])
 
     tareas = cursor.fetchall()
-
-    # Contar total de tareas para calcular páginas
-    cursor.execute("SELECT COUNT(*) FROM tareas")
-    total_tareas = cursor.fetchone()[0]
-    total_pages = (total_tareas + per_page - 1) // per_page if total_tareas > 0 else 1
-
-    # Estadísticas
-    cursor.execute("SELECT COUNT(*) FROM tareas WHERE completada = 1")
-    completadas = cursor.fetchone()[0]
-    pendientes = total_tareas - completadas
-
-    # SOLUCIÓN 2: Formato correcto de categorías para tu select del HTML
-    cursor.execute("SELECT DISTINCT categoria FROM tareas")
-    categorias = [row["categoria"] for row in cursor.fetchall() if row["categoria"]]
-
+    
+    # Traer lista de categorías para el selector
+    cursor.execute("SELECT DISTINCT categoria FROM tareas WHERE categoria IS NOT NULL AND categoria != ''")
+    categorias_lista = [row[0] for row in cursor.fetchall()]
+    
     conn.close()
 
     return render_template(
@@ -270,13 +281,11 @@ def admin():
         tareas=tareas,
         page=page,
         total_pages=total_pages,
-        total=total_tareas,
-        completadas=completadas,
-        pendientes=pendientes,
-        exportadas=total_tareas, # Faltaba esta variable que usas en los KPIs
-        categorias=categorias
+        total=total_filtrado, # Ahora muestra el total del filtro
+        categorias=categorias_lista,
+        filtro_cat=filtro_cat,
+        filtro_est=filtro_est
     )
-
 
 
 
