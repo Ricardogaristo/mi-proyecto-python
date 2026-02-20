@@ -218,51 +218,62 @@ def agregar():
 @app.route("/admin")
 @login_required
 def admin():
-    # Solo puede acceder el admin
     if session.get("es_admin") != 1:
         return redirect("/")
 
-    # --- Paginación ---
+    # 1. Capturar filtros primero
+    filtro_cat = request.args.get("categoria", "")
+    filtro_est = request.args.get("estado", "")
+    
+    # 2. Si hay filtros nuevos, la página DEBE ser la 1 por defecto 
+    # para evitar que el offset nos mande a una página vacía
     page = request.args.get("page", 1, type=int)
+    
     per_page = 10
     offset = (page - 1) * per_page
 
     conn = get_connection()
     cursor = conn.cursor()
 
-    # SOLUCIÓN 1: Mantener el orden de columnas original para que no se rompan 
-    # los índices en el HTML (tarea[4] sigue siendo completada)
-    cursor.execute("""
-        SELECT tareas.id, 
-               tareas.descripcion, 
-               tareas.categoria, 
-               tareas.fecha, 
-               tareas.completada, 
-               tareas.codigo,
-               tareas.usuario_id,
-               usuarios.username AS usuario
-        FROM tareas
-        LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
-        ORDER BY tareas.id DESC
+    # 3. Construir la base de la consulta filtrada
+    query_base = "FROM tareas WHERE 1=1"
+    params = []
+
+    if filtro_cat:
+        query_base += " AND categoria = ?"
+        params.append(filtro_cat)
+    
+    if filtro_est:
+        valor_est = 1 if filtro_est == "Completada" else 0
+        query_base += " AND completada = ?"
+        params.append(valor_est)
+
+    # 4. CONTAR TOTAL real basado en el FILTRO
+    cursor.execute(f"SELECT COUNT(*) {query_base}", params)
+    total_filtrado = cursor.fetchone()[0]
+    
+    # Recalcular total de páginas para este filtro específico
+    total_pages = (total_filtrado + per_page - 1) // per_page if total_filtrado > 0 else 1
+
+    # SEGURIDAD: Si la página solicitada es mayor a las que existen con el filtro, volver a la 1
+    if page > total_pages:
+        page = 1
+        offset = 0
+
+    # 5. Obtener los resultados finales
+    cursor.execute(f"""
+        SELECT id, descripcion, categoria, fecha, completada, codigo, usuario_id
+        {query_base}
+        ORDER BY id DESC
         LIMIT ? OFFSET ?
-    """, (per_page, offset))
+    """, params + [per_page, offset])
 
     tareas = cursor.fetchall()
-
-    # Contar total de tareas para calcular páginas
-    cursor.execute("SELECT COUNT(*) FROM tareas")
-    total_tareas = cursor.fetchone()[0]
-    total_pages = (total_tareas + per_page - 1) // per_page if total_tareas > 0 else 1
-
-    # Estadísticas
-    cursor.execute("SELECT COUNT(*) FROM tareas WHERE completada = 1")
-    completadas = cursor.fetchone()[0]
-    pendientes = total_tareas - completadas
-
-    # SOLUCIÓN 2: Formato correcto de categorías para tu select del HTML
-    cursor.execute("SELECT DISTINCT categoria FROM tareas")
-    categorias = [row["categoria"] for row in cursor.fetchall() if row["categoria"]]
-
+    
+    # Traer lista de categorías para el selector
+    cursor.execute("SELECT DISTINCT categoria FROM tareas WHERE categoria IS NOT NULL AND categoria != ''")
+    categorias_lista = [row[0] for row in cursor.fetchall()]
+    
     conn.close()
 
     return render_template(
@@ -270,13 +281,11 @@ def admin():
         tareas=tareas,
         page=page,
         total_pages=total_pages,
-        total=total_tareas,
-        completadas=completadas,
-        pendientes=pendientes,
-        exportadas=total_tareas, # Faltaba esta variable que usas en los KPIs
-        categorias=categorias
+        total=total_filtrado, # Ahora muestra el total del filtro
+        categorias=categorias_lista,
+        filtro_cat=filtro_cat,
+        filtro_est=filtro_est
     )
-
 
 
 
@@ -387,96 +396,104 @@ def dashboard():
 
 
 
-# -----------------------------
-# EXPORTAR EXCEL BONITO
-# -----------------------------
+from datetime import datetime
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from flask import send_file
+
+# ---------------------------------------------------------
+# EXPORTAR EXCEL: HISTORIAL + TAREAS DEL DÍA
+# ---------------------------------------------------------
 @app.route("/exportar")
 @login_required
 def exportar():
+    hoy = datetime.now().strftime("%Y-%m-%d") # Ajusta el formato si usas DD/MM/YYYY
+    user_id = session.get("user_id")
+    es_admin = session.get("es_admin")
+    
     conn = get_connection()
     cursor = conn.cursor()
 
-    if session.get("es_admin") == 1:
-        # Admin ve todas las tareas con info del usuario
+    # 1. Obtener Historial Completo
+    if es_admin == 1:
         cursor.execute("""
-            SELECT t.*, u.username, u.email
-            FROM tareas t
-            LEFT JOIN usuarios u ON t.usuario_id = u.id
-            ORDER BY t.id
+            SELECT t.*, u.username FROM tareas t 
+            LEFT JOIN usuarios u ON t.usuario_id = u.id ORDER BY t.id
         """)
-    else:
-        # Usuario ve solo sus tareas
+        historial = cursor.fetchall()
+        
+        # 2. Obtener Tareas de Hoy
         cursor.execute("""
-            SELECT t.*, u.username, u.email
-            FROM tareas t
-            LEFT JOIN usuarios u ON t.usuario_id = u.id
-            WHERE t.usuario_id = ?
-            ORDER BY t.id
-        """, (session["user_id"],))
+            SELECT t.*, u.username FROM tareas t 
+            LEFT JOIN usuarios u ON t.usuario_id = u.id 
+            WHERE t.fecha = ? ORDER BY t.id
+        """, (hoy,))
+        tareas_hoy = cursor.fetchall()
+    else:
+        cursor.execute("""
+            SELECT t.*, u.username FROM tareas t 
+            LEFT JOIN usuarios u ON t.usuario_id = u.id 
+            WHERE t.usuario_id = ? ORDER BY t.id
+        """, (user_id,))
+        historial = cursor.fetchall()
 
-    tareas = cursor.fetchall()
+        cursor.execute("""
+            SELECT t.*, u.username FROM tareas t 
+            LEFT JOIN usuarios u ON t.usuario_id = u.id 
+            WHERE t.usuario_id = ? AND t.fecha = ? ORDER BY t.id
+        """, (user_id, hoy))
+        tareas_hoy = cursor.fetchall()
+
     conn.close()
 
-    # --- Crear Excel ---
+    # --- Configuración del Libro ---
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Tareas"
-
-    headers = ["ID", "Código", "Descripción", "Categoría", "Fecha", "Estado", "Usuario", "Email"]
-    ws.append(headers)
-
-    # Estilos
+    
+    # Estilos comunes
     header_fill = PatternFill(start_color="343A40", end_color="343A40", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
-    header_alignment = Alignment(horizontal="center", vertical="center")
-    thin_border = Border(
-        left=Side(style='thin'), right=Side(style='thin'),
-        top=Side(style='thin'), bottom=Side(style='thin')
-    )
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                         top=Side(style='thin'), bottom=Side(style='thin'))
+    center_align = Alignment(horizontal="center", vertical="center")
 
-    for col in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = header_alignment
-        cell.border = thin_border
+    # Función auxiliar para llenar hojas y no repetir código
+    def llenar_hoja(sheet, datos, titulo):
+        sheet.title = titulo
+        headers = ["ID", "Código", "Descripción", "Categoría", "Fecha", "Estado", "Usuario"]
+        sheet.append(headers)
+        
+        for col in range(1, len(headers) + 1):
+            cell = sheet.cell(row=1, column=col)
+            cell.fill, cell.font, cell.alignment, cell.border = header_fill, header_font, center_align, thin_border
 
-    # Agregar tareas
-    for fila_num, tarea in enumerate(tareas, start=2):
-        estado = "Completada" if tarea["completada"] == 1 else "Pendiente"
-        row = [
-            tarea["id"],
-            tarea["codigo"] or "",
-            tarea["descripcion"] or "",
-            tarea["categoria"] or "",
-            tarea["fecha"] or "",
-            estado,
-            tarea["username"] or "",
-            tarea["email"] or ""
-        ]
+        for fila_num, t in enumerate(datos, start=2):
+            est_txt = "Completada" if t["completada"] == 1 else "Pendiente"
+            row = [t["id"], t["codigo"] or "", t["descripcion"], t["categoria"] or "General", 
+                   t["fecha"] or "-", est_txt, t["username"] or "N/A"]
+            
+            for col_num, value in enumerate(row, start=1):
+                cell = sheet.cell(row=fila_num, column=col_num, value=value)
+                cell.border, cell.alignment = thin_border, center_align
+                if col_num == 6: # Colorear estado
+                    color = "28A745" if est_txt == "Completada" else "FFC107"
+                    cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+            
+        # Ajustar ancho
+        for col in sheet.columns:
+            max_l = max(len(str(c.value)) for c in col)
+            sheet.column_dimensions[col[0].column_letter].width = max_l + 4
 
-        for col_num, value in enumerate(row, start=1):
-            cell = ws.cell(row=fila_num, column=col_num, value=value)
-            cell.border = thin_border
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+    # --- Crear Hoja 1: Historial ---
+    ws1 = wb.active
+    llenar_hoja(ws1, historial, "Historial Completo")
 
-            # Colorear columna Estado
-            if col_num == 6:
-                if estado == "Completada":
-                    cell.fill = PatternFill(start_color="28A745", end_color="28A745", fill_type="solid")
-                else:
-                    cell.fill = PatternFill(start_color="FFC107", end_color="FFC107", fill_type="solid")
-                cell.font = Font(bold=True, color="FFFFFF")
+    # --- Crear Hoja 2: Hoy ---
+    ws2 = wb.create_sheet(title="Tareas de Hoy")
+    llenar_hoja(ws2, tareas_hoy, f"Hoy {hoy}")
 
-    # Ajustar ancho columnas
-    for column_cells in ws.columns:
-        max_length = max(len(str(cell.value)) if cell.value else 0 for cell in column_cells)
-        ws.column_dimensions[column_cells[0].column_letter].width = max_length + 5
-
-    archivo = "tareas_export.xlsx"
+    archivo = f"Reporte_Tareas_{hoy}.xlsx"
     wb.save(archivo)
     return send_file(archivo, as_attachment=True)
-
 
 
 
