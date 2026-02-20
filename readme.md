@@ -6,7 +6,7 @@ El sistema permite administrar tareas desde una interfaz web, con soporte para b
 
 🚀 Funcionalidades
 
-✅ Registro de nuevas tareas
+✅ Registro de nuevas tareas11
 
 ✅ Organización por categorías
 
