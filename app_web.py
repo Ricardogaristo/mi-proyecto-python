@@ -218,75 +218,108 @@ def agregar():
 @app.route("/admin")
 @login_required
 def admin():
+
+    # ==============================
+    # Validación segura de admin
+    # ==============================
     if session.get("es_admin") != 1:
         return redirect("/")
 
-    # 1. Capturar filtros primero
-    filtro_cat = request.args.get("categoria", "")
-    filtro_est = request.args.get("estado", "")
-    
-    # 2. Si hay filtros nuevos, la página DEBE ser la 1 por defecto 
-    # para evitar que el offset nos mande a una página vacía
+    # ==============================
+    # Parámetros de filtros
+    # ==============================
+    filtro_cat = request.args.get("categoria", "").strip()
+    filtro_est = request.args.get("estado", "").strip()
     page = request.args.get("page", 1, type=int)
-    
+
+    if page < 1:
+        page = 1
+
     per_page = 10
-    offset = (page - 1) * per_page
 
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    # 3. Construir la base de la consulta filtrada
-    query_base = "FROM tareas WHERE 1=1"
+    # ==============================
+    # Construcción dinámica del WHERE
+    # ==============================
+    filtros = []
     params = []
 
     if filtro_cat:
-        query_base += " AND categoria = ?"
+        filtros.append("LOWER(TRIM(categoria)) = LOWER(TRIM(?))")
         params.append(filtro_cat)
-    
-    if filtro_est:
-        valor_est = 1 if filtro_est == "Completada" else 0
-        query_base += " AND completada = ?"
-        params.append(valor_est)
 
-    # 4. CONTAR TOTAL real basado en el FILTRO
-    cursor.execute(f"SELECT COUNT(*) {query_base}", params)
-    total_filtrado = cursor.fetchone()[0]
-    
-    # Recalcular total de páginas para este filtro específico
-    total_pages = (total_filtrado + per_page - 1) // per_page if total_filtrado > 0 else 1
+    if filtro_est == "Completada":
+        filtros.append("completada = 1")
+    elif filtro_est == "Pendiente":
+        filtros.append("completada = 0")
 
-    # SEGURIDAD: Si la página solicitada es mayor a las que existen con el filtro, volver a la 1
-    if page > total_pages:
-        page = 1
-        offset = 0
+    where_clause = ""
+    if filtros:
+        where_clause = "WHERE " + " AND ".join(filtros)
 
-    # 5. Obtener los resultados finales
-    cursor.execute(f"""
-        SELECT id, descripcion, categoria, fecha, completada, codigo, usuario_id
-        {query_base}
-        ORDER BY id DESC
-        LIMIT ? OFFSET ?
-    """, params + [per_page, offset])
+    # ==============================
+    # Conexión segura (context manager)
+    # ==============================
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
 
-    tareas = cursor.fetchall()
-    
-    # Traer lista de categorías para el selector
-    cursor.execute("SELECT DISTINCT categoria FROM tareas WHERE categoria IS NOT NULL AND categoria != ''")
-    categorias_lista = [row[0] for row in cursor.fetchall()]
-    
-    conn.close()
+        # ------------------------------
+        # Conteo total filtrado
+        # ------------------------------
+        cursor.execute(
+            f"SELECT COUNT(*) FROM tareas {where_clause}",
+            params
+        )
+        total_filtrado = cursor.fetchone()[0]
 
+        total_pages = max((total_filtrado + per_page - 1) // per_page, 1)
+
+        if page > total_pages:
+            page = total_pages
+
+        offset = (page - 1) * per_page
+
+        # ------------------------------
+        # Obtener tareas paginadas
+        # ------------------------------
+        cursor.execute(
+            f"""
+            SELECT id, descripcion, categoria, fecha,
+                   completada, codigo, usuario_id
+            FROM tareas
+            {where_clause}
+            ORDER BY id DESC
+            LIMIT ? OFFSET ?
+            """,
+            params + [per_page, offset]
+        )
+
+        tareas = cursor.fetchall()
+
+        # ------------------------------
+        # Obtener categorías
+        # ------------------------------
+        cursor.execute("""
+            SELECT DISTINCT categoria
+            FROM tareas
+            WHERE categoria IS NOT NULL AND categoria != ''
+            ORDER BY categoria
+        """)
+        categorias_lista = [row[0] for row in cursor.fetchall()]
+
+    # ==============================
+    # Renderizado
+    # ==============================
     return render_template(
         "admin.html",
         tareas=tareas,
         page=page,
         total_pages=total_pages,
-        total=total_filtrado, # Ahora muestra el total del filtro
+        total=total_filtrado,
         categorias=categorias_lista,
         filtro_cat=filtro_cat,
         filtro_est=filtro_est
     )
-
 
 
 

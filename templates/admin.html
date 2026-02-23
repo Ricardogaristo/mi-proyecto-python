@@ -16,10 +16,13 @@
         </select>
     </div>
     <div class="col-md-3">
-        <select id="filtro_categoria" class="form-select">
+        <select id="filtro_categoria" class="form-select" onchange="aplicarFiltroServidor()">
             <option value="">Todas las categorías</option>
             {% for cat in categorias %}
-                <option value="{{ cat }}">{{ cat }}</option>
+                <option value="{{ cat }}" 
+                    {% if request.args.get("categoria") == cat %}selected{% endif %}>
+                    {{ cat }}
+                </option>
             {% endfor %}
         </select>
     </div>
@@ -165,6 +168,42 @@ document.getElementById("buscador").addEventListener("keyup", aplicarFiltros);
 document.getElementById("filtro_codigo").addEventListener("keyup", aplicarFiltros);
 document.getElementById("filtro_estado").addEventListener("change", aplicarFiltros);
 document.getElementById("filtro_categoria").addEventListener("change", aplicarFiltros);
+</script>
+
+<script>
+function aplicarFiltroServidor() {
+    let estado = document.getElementById("filtro_estado").value;
+    let categoria = document.getElementById("filtro_categoria").value;
+    let codigo = document.getElementById("filtro_codigo").value;
+
+    let url = new URL(window.location.href);
+
+    // Estado
+    if (estado !== "") {
+        url.searchParams.set("estado", estado);
+    } else {
+        url.searchParams.delete("estado");
+    }
+
+    // Categoría
+    if (categoria !== "") {
+        url.searchParams.set("categoria", categoria);
+    } else {
+        url.searchParams.delete("categoria");
+    }
+
+    // Código
+    if (codigo !== "") {
+        url.searchParams.set("codigo", codigo);
+    } else {
+        url.searchParams.delete("codigo");
+    }
+
+    // Siempre resetear página
+    url.searchParams.set("page", 1);
+
+    window.location.href = url.toString();
+}
 </script>
 
 {% endblock %}
