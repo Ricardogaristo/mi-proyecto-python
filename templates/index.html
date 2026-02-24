@@ -67,7 +67,7 @@
             t[0]=id  t[1]=descripcion  t[2]=categoria
             t[3]=fecha  t[4]=completada  t[5]=codigo  t[6]=usuario_id
           #}
-          <tr class="{% if t[4]==1 %}row-done{% endif %}"
+          <tr class="{{ 'row-done' if t[4]==1 else '' }}"
               data-search="{{ (t[5] or '') }} {{ t[1] }} {{ (t[2] or '') }}"
               style="animation-delay:{{ loop.index0 * 25 }}ms; animation: fadeUp .25s ease both;">
 
@@ -125,15 +125,15 @@
     {% if total_pages > 1 %}
     <div class="py-3 border-top" style="border-color:var(--border)!important;">
       <ul class="gpagination">
-        <li class="{% if page <= 1 %}disabled{% endif %}">
+        <li class="{{ 'disabled' if page <= 1 else '' }}">
           <a class="gpage-link" href="?page={{ page-1 }}">← Ant</a>
         </li>
         {% for p in range(1, total_pages+1) %}
-        <li class="{% if p==page %}active{% endif %}">
+        <li class="{{ 'active' if p==page else '' }}">
           <a class="gpage-link" href="?page={{ p }}">{{ p }}</a>
         </li>
         {% endfor %}
-        <li class="{% if page >= total_pages %}disabled{% endif %}">
+        <li class="{{ 'disabled' if page >= total_pages else '' }}">
           <a class="gpage-link" href="?page={{ page+1 }}">Sig →</a>
         </li>
       </ul>

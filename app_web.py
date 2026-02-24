@@ -215,6 +215,7 @@ def agregar():
     return redirect("/")
 
 
+
 @app.route("/admin")
 @login_required
 def admin():
@@ -601,6 +602,10 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
+@app.route("/accesos_rapidos")
+@login_required
+def accesos_rapidos():
+    return render_template("accesos_rapidos.html")
 
 
 # --- ARRANCAR ---

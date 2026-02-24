@@ -23,7 +23,7 @@
       --bg3:          #21262d;
       --border:       #30363d;
       --border-soft:  #21262d;
-      --text:         #ffffff;
+      --text:         #e6edf3;
       --text-muted:   #7d8590;
       --text-dim:     #484f58;
       --accent:       #3fb950;       /* verde vivo */
@@ -168,7 +168,7 @@
       overflow: hidden;
       transition: border-color var(--transition);
     }
-    .gcard:hover { border-color: #ffffff; }
+    .gcard:hover { border-color: #444c56; }
     .gcard-body { padding: 1.5rem; }
     .gcard-header {
       padding: 1rem 1.5rem;
@@ -182,6 +182,7 @@
       font-weight: 500;
       letter-spacing: .1em;
       text-transform: uppercase;
+      color: var(--text-muted);
       margin: 0;
     }
 
@@ -288,6 +289,7 @@
       font-weight: 500;
       letter-spacing: .08em;
       text-transform: uppercase;
+      color: var(--text-dim);
       background: var(--bg3);
       border-bottom: 1px solid var(--border);
       padding: .75rem 1rem;
@@ -306,7 +308,7 @@
       color: var(--text);
       border-bottom: 1px solid var(--border-soft);
     }
-    .gtable tbody tr.row-done td {  }
+    .gtable tbody tr.row-done td { opacity: .5; }
     .gtable tbody tr.row-done td:first-child { opacity: 1; }
 
     /* ══════════════════════════════════════
@@ -496,20 +498,29 @@
             style="color:var(--text-muted); font-size:.9rem;">☰</button>
 
     <div class="collapse navbar-collapse" id="navMain">
+      {% set path = request.path %}
       <ul class="navbar-nav me-auto gap-1 mt-2 mt-lg-0">
         <li class="nav-item">
-          <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/">
+          <a class="nav-link{{ ' active' if path == '/' else '' }}" href="/">
             ⊞ Tareas
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.path == '/dashboard' %}active{% endif %}" href="/dashboard">
+          <a class="nav-link{{ ' active' if path == '/dashboard' else '' }}" href="/dashboard">
             ◈ Dashboard
           </a>
         </li>
         {% if session.get('es_admin') == 1 %}
         <li class="nav-item">
-          <a class="nav-link {% if request.path == '/admin' %}active{% endif %}" href="/admin">
+          <a class="nav-link{{ ' active' if path == '/accesos_rapidos' else '' }}" href="/accesos_rapidos">
+            ⚙ Accesos Rápidos
+          </a>
+        </li>
+        {% endif %}
+
+        {% if session.get('es_admin') == 1 %}
+        <li class="nav-item">
+          <a class="nav-link{{ ' active' if path == '/admin' else '' }}" href="/admin">
             ⚙ Admin
           </a>
         </li>
