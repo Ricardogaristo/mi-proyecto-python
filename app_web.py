@@ -127,6 +127,10 @@ def login():
     return render_template("login.html", error="Credenciales incorrectas")
 
 
+@app.route("/accesos_rapidos")
+@login_required
+def accesos_rapidos():
+    return render_template("accesos_rapidos.html")
 
 @app.route("/registro", methods=["GET", "POST"])
 def registro():
@@ -213,7 +217,6 @@ def agregar():
     conn.close()
 
     return redirect("/")
-
 
 
 @app.route("/admin")
@@ -461,104 +464,300 @@ def dashboard():
 
 
 
-from datetime import datetime
+import io
+from collections import defaultdict
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.cell.cell import MergedCell
 from flask import send_file
 
-# ---------------------------------------------------------
-# EXPORTAR EXCEL: HISTORIAL + TAREAS DEL DÍA
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# EXPORTAR EXCEL — Resumen general + hoja por categoría + hoja diaria
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Paleta de colores (tema oscuro coherente con la app)
+_DARK   = "0D1117"; _DARK2 = "161B22"; _ACCENT = "3FB950"; _AMBER = "D29922"
+_BLUE   = "58A6FF"; _PURPLE = "BC8CFF"; _TEAL = "39D3BB"
+_TXT_W  = "E6EDF3"; _TXT_M = "7D8590"; _BDR = "30363D"
+_CAT_COLS = [
+    ("1A4A24","3FB950"), ("3D2E00","D29922"), ("0D2040","58A6FF"),
+    ("1E1040","BC8CFF"), ("0A2E2A","39D3BB"), ("3D0F0E","F85149"),
+    ("1A2A40","79C0FF"), ("2D1A00","F0883E"),
+]
+
+def _xb():
+    s = Side(style="thin", color=_BDR)
+    return Border(left=s, right=s, top=s, bottom=s)
+
+def _xf(h):
+    return PatternFill(start_color=h, end_color=h, fill_type="solid")
+
+def _xfn(bold=False, color=_TXT_W, size=10, italic=False):
+    return Font(bold=bold, color=color, size=size, italic=italic, name="Calibri")
+
+def _xal(h="center", v="center", wrap=False):
+    return Alignment(horizontal=h, vertical=v, wrap_text=wrap)
+
+def _xhdr(cell, bg=_DARK, fg=_TXT_W, size=10):
+    cell.fill = _xf(bg); cell.font = _xfn(bold=True, color=fg, size=size)
+    cell.alignment = _xal(); cell.border = _xb()
+
+def _xaw(ws, min_w=8, max_w=50):
+    """Ajusta ancho de columnas ignorando celdas fusionadas."""
+    for col_cells in ws.iter_cols():
+        first = col_cells[0]
+        if isinstance(first, MergedCell):
+            continue
+        length = max(
+            (len(str(c.value)) if c.value is not None
+             and not isinstance(c, MergedCell) else 0)
+            for c in col_cells
+        )
+        ws.column_dimensions[first.column_letter].width = min(max(length + 3, min_w), max_w)
+
+
+def _hoja_resumen(wb, todas, hoy_str, es_admin_usr, username):
+    """Hoja 1: KPIs globales + tabla resumen por categoría."""
+    ws = wb.active
+    ws.title = "Resumen General"
+    ws.sheet_properties.tabColor = _ACCENT
+    ws.sheet_view.showGridLines  = False
+
+    # Título
+    ws.merge_cells("A1:H1")
+    c = ws["A1"]
+    c.value     = f"  REPORTE DE TAREAS — {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    c.fill      = _xf(_DARK); c.font = _xfn(bold=True, size=14, color=_ACCENT)
+    c.alignment = _xal(h="left"); c.border = _xb()
+    ws.row_dimensions[1].height = 36
+
+    ws.merge_cells("A2:H2")
+    c = ws["A2"]
+    c.value = f"  Generado por: {username}   ·   {'Vista administrador' if es_admin_usr else 'Vista personal'}"
+    c.fill = _xf(_DARK2); c.font = _xfn(color=_TXT_M, size=9, italic=True)
+    c.alignment = _xal(h="left"); c.border = _xb()
+    ws.row_dimensions[2].height = 20
+
+    # KPIs
+    total  = len(todas)
+    comp   = sum(1 for t in todas if t["completada"] == 1)
+    pend   = total - comp
+    pct    = round(comp / total * 100, 1) if total else 0
+    n_cats = len({t["categoria"] or "General" for t in todas})
+
+    kpis = [
+        ("TOTAL TAREAS", total,    _BLUE,   "0D2040"),
+        ("COMPLETADAS",  comp,     _ACCENT, "1A4A24"),
+        ("PENDIENTES",   pend,     _AMBER,  "3D2E00"),
+        ("% COMPLETADO", f"{pct}%",_TEAL,   "0A2E2A"),
+        ("CATEGORÍAS",   n_cats,   _PURPLE, "1E1040"),
+    ]
+    for rh, h in [(3,10),(4,22),(5,40),(6,18),(7,10)]:
+        ws.row_dimensions[rh].height = h
+    for ci, (label, valor, fg, bg) in enumerate(kpis, start=1):
+        for rn, val, fsz in [(4, label, 8), (5, valor, 22), (6, "", 9)]:
+            c = ws.cell(row=rn, column=ci, value=val)
+            c.fill = _xf(bg); c.font = _xfn(bold=True, color=fg, size=fsz)
+            c.alignment = _xal(); c.border = _xb()
+        ws.column_dimensions[get_column_letter(ci)].width = 18
+
+    # Cabecera tabla categorías
+    ws.row_dimensions[8].height = 22
+    for ci, h in enumerate(["Categoría","Total","Completadas","Pendientes","% Completado","Usuarios"], start=1):
+        c = ws.cell(row=8, column=ci, value=h); _xhdr(c, bg=_DARK, fg=_ACCENT)
+
+    # Datos por categoría
+    cat_data = defaultdict(lambda: {"total":0,"completadas":0,"usuarios":set()})
+    for t in todas:
+        cat = t["categoria"] or "General"
+        cat_data[cat]["total"]      += 1
+        cat_data[cat]["completadas"] += (1 if t["completada"] == 1 else 0)
+        if t.get("username"):
+            cat_data[cat]["usuarios"].add(t["username"])
+
+    rn = 9
+    for ci2, (cat, d) in enumerate(sorted(cat_data.items())):
+        bg_f, fg_c = _CAT_COLS[ci2 % len(_CAT_COLS)]
+        pc2  = d["total"] - d["completadas"]
+        ptc2 = round(d["completadas"] / d["total"] * 100, 1) if d["total"] else 0
+        u_str = ", ".join(sorted(d["usuarios"])) if d["usuarios"] else "—"
+        for cj, val in enumerate([cat, d["total"], d["completadas"], pc2, f"{ptc2}%", u_str], start=1):
+            c = ws.cell(row=rn, column=cj, value=val)
+            c.fill      = _xf(bg_f if cj == 1 else _DARK2)
+            c.font      = _xfn(bold=(cj==1), color=fg_c if cj==1 else _TXT_W)
+            c.alignment = _xal(h="left" if cj in (1,6) else "center")
+            c.border    = _xb()
+        ws.row_dimensions[rn].height = 18; rn += 1
+
+    # Fila totales
+    for cj, val in enumerate(["TOTAL", total, comp, pend, f"{pct}%", ""], start=1):
+        c = ws.cell(row=rn, column=cj, value=val)
+        c.fill = _xf(_DARK); c.font = _xfn(bold=True, color=_ACCENT, size=10)
+        c.alignment = _xal(h="left" if cj==1 else "center"); c.border = _xb()
+    ws.row_dimensions[rn].height = 20
+
+    for i, w in enumerate([28,10,14,12,16,32], start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A9"
+
+
+def _hoja_categoria(wb, cat_nombre, tareas_cat, color_idx):
+    """Una hoja por cada categoría con sus tareas."""
+    bg_fill, fg_col = _CAT_COLS[color_idx % len(_CAT_COLS)]
+    titulo = cat_nombre[:28] + "..." if len(cat_nombre) > 31 else cat_nombre
+    ws = wb.create_sheet(title=titulo)
+    ws.sheet_properties.tabColor = fg_col
+    ws.sheet_view.showGridLines  = False
+
+    ws.merge_cells("A1:G1")
+    c = ws["A1"]; c.value = f"  {cat_nombre.upper()}"
+    c.fill = _xf(bg_fill); c.font = _xfn(bold=True, size=13, color=fg_col)
+    c.alignment = _xal(h="left"); c.border = _xb()
+    ws.row_dimensions[1].height = 32
+
+    tc  = len(tareas_cat)
+    cc  = sum(1 for t in tareas_cat if t["completada"] == 1)
+    pc  = tc - cc
+    ptc = round(cc / tc * 100, 1) if tc else 0
+    ws.merge_cells("A2:G2")
+    c = ws["A2"]
+    c.value     = f"  Total: {tc}  ·  Completadas: {cc}  ·  Pendientes: {pc}  ·  Progreso: {ptc}%"
+    c.fill      = _xf(_DARK2); c.font = _xfn(color=_TXT_M, size=9, italic=True)
+    c.alignment = _xal(h="left"); c.border = _xb()
+    ws.row_dimensions[2].height = 18
+
+    for ci, h in enumerate(["ID","Código","Descripción","Fecha","Estado","Usuario","Notas"], start=1):
+        _xhdr(ws.cell(row=3, column=ci, value=h), bg=bg_fill, fg=fg_col)
+    ws.row_dimensions[3].height = 20
+
+    for ri, t in enumerate(tareas_cat, start=4):
+        done = t["completada"] == 1
+        est  = "✔  Completada" if done else "●  Pendiente"
+        ec   = _ACCENT if done else _AMBER
+        rbg  = "1A4A24" if done else "3D2E00"
+        vals = [t["id"], t["codigo"] or "—", t["descripcion"],
+                t["fecha"] or "—", est, t.get("username") or "—", ""]
+        for ci, val in enumerate(vals, start=1):
+            c = ws.cell(row=ri, column=ci, value=val)
+            c.fill      = _xf(rbg if ci == 5 else _DARK2)
+            c.font      = _xfn(bold=(ci==5),
+                               color=ec if ci==5 else (_TXT_M if ci in (1,4,6) else _TXT_W),
+                               size=9 if ci in (1,4,6) else 10)
+            c.alignment = _xal(h="center" if ci in (1,4,5) else "left", wrap=(ci==3))
+            c.border    = _xb()
+        ws.row_dimensions[ri].height = 16
+
+    _xaw(ws)
+    ws.column_dimensions["C"].width = 45
+    ws.column_dimensions["G"].width = 20
+    ws.freeze_panes = "A4"
+    ws.auto_filter.ref = ws.dimensions
+
+
+def _hoja_hoy(wb, tareas_hoy, hoy_str):
+    """Última hoja: tareas del día actual."""
+    ws = wb.create_sheet(title="Hoy")
+    ws.sheet_properties.tabColor = _BLUE
+    ws.sheet_view.showGridLines  = False
+
+    ws.merge_cells("A1:G1")
+    c = ws["A1"]
+    c.value     = f"  TAREAS DEL DÍA — {datetime.strptime(hoy_str, '%Y-%m-%d').strftime('%d / %m / %Y')}"
+    c.fill      = _xf("0D2040"); c.font = _xfn(bold=True, size=13, color=_BLUE)
+    c.alignment = _xal(h="left"); c.border = _xb()
+    ws.row_dimensions[1].height = 32
+
+    th = len(tareas_hoy)
+    ch = sum(1 for t in tareas_hoy if t["completada"] == 1)
+    ws.merge_cells("A2:G2")
+    c = ws["A2"]
+    c.value     = f"  {th} tarea{'s' if th!=1 else ''} programadas hoy  ·  {ch} completadas  ·  {th-ch} pendientes"
+    c.fill      = _xf(_DARK2); c.font = _xfn(color=_TXT_M, size=9, italic=True)
+    c.alignment = _xal(h="left"); c.border = _xb()
+    ws.row_dimensions[2].height = 18
+
+    for ci, h in enumerate(["ID","Código","Descripción","Categoría","Estado","Usuario","Notas"], start=1):
+        _xhdr(ws.cell(row=3, column=ci, value=h), bg="0D2040", fg=_BLUE)
+    ws.row_dimensions[3].height = 20
+
+    if not tareas_hoy:
+        ws.merge_cells("A4:G4")
+        e = ws["A4"]; e.value = "No hay tareas programadas para hoy."
+        e.fill = _xf(_DARK2); e.font = _xfn(color=_TXT_M, italic=True)
+        e.alignment = _xal(); e.border = _xb()
+    else:
+        for ri, t in enumerate(tareas_hoy, start=4):
+            done = t["completada"] == 1
+            est  = "✔  Completada" if done else "●  Pendiente"
+            ec   = _ACCENT if done else _AMBER
+            rbg  = "1A4A24" if done else "3D2E00"
+            vals = [t["id"], t["codigo"] or "—", t["descripcion"],
+                    t["categoria"] or "General", est, t.get("username") or "—", ""]
+            for ci, val in enumerate(vals, start=1):
+                c = ws.cell(row=ri, column=ci, value=val)
+                c.fill      = _xf(rbg if ci == 5 else _DARK2)
+                c.font      = _xfn(bold=(ci==5),
+                                   color=ec if ci==5 else (_TXT_M if ci in (1,6) else _TXT_W),
+                                   size=9 if ci in (1,6) else 10)
+                c.alignment = _xal(h="center" if ci in (1,5) else "left", wrap=(ci==3))
+                c.border    = _xb()
+            ws.row_dimensions[ri].height = 16
+
+    _xaw(ws)
+    ws.column_dimensions["C"].width = 45
+    ws.column_dimensions["G"].width = 20
+    ws.freeze_panes = "A4"
+    ws.auto_filter.ref = ws.dimensions
+
+
 @app.route("/exportar")
 @login_required
 def exportar():
-    hoy = datetime.now().strftime("%Y-%m-%d") # Ajusta el formato si usas DD/MM/YYYY
-    user_id = session.get("user_id")
-    es_admin = session.get("es_admin")
-    
-    conn = get_connection()
-    cursor = conn.cursor()
+    hoy      = datetime.now().strftime("%Y-%m-%d")
+    user_id  = session.get("user_id")
+    admin    = session.get("es_admin") == 1
+    username = session.get("user", "sistema")
 
-    # 1. Obtener Historial Completo
-    if es_admin == 1:
-        cursor.execute("""
-            SELECT t.*, u.username FROM tareas t 
-            LEFT JOIN usuarios u ON t.usuario_id = u.id ORDER BY t.id
-        """)
-        historial = cursor.fetchall()
-        
-        # 2. Obtener Tareas de Hoy
-        cursor.execute("""
-            SELECT t.*, u.username FROM tareas t 
-            LEFT JOIN usuarios u ON t.usuario_id = u.id 
-            WHERE t.fecha = ? ORDER BY t.id
-        """, (hoy,))
-        tareas_hoy = cursor.fetchall()
+    conn   = get_connection()
+    base_q = """
+        SELECT t.id, t.descripcion, t.categoria, t.fecha,
+               t.completada, t.codigo, t.usuario_id, u.username
+        FROM tareas t LEFT JOIN usuarios u ON t.usuario_id = u.id
+    """
+    if admin:
+        todas      = [dict(r) for r in conn.execute(
+            base_q + " ORDER BY t.categoria, t.id").fetchall()]
+        tareas_hoy = [dict(r) for r in conn.execute(
+            base_q + " WHERE t.fecha=? ORDER BY t.id", (hoy,)).fetchall()]
     else:
-        cursor.execute("""
-            SELECT t.*, u.username FROM tareas t 
-            LEFT JOIN usuarios u ON t.usuario_id = u.id 
-            WHERE t.usuario_id = ? ORDER BY t.id
-        """, (user_id,))
-        historial = cursor.fetchall()
-
-        cursor.execute("""
-            SELECT t.*, u.username FROM tareas t 
-            LEFT JOIN usuarios u ON t.usuario_id = u.id 
-            WHERE t.usuario_id = ? AND t.fecha = ? ORDER BY t.id
-        """, (user_id, hoy))
-        tareas_hoy = cursor.fetchall()
-
+        todas      = [dict(r) for r in conn.execute(
+            base_q + " WHERE t.usuario_id=? ORDER BY t.categoria, t.id", (user_id,)).fetchall()]
+        tareas_hoy = [dict(r) for r in conn.execute(
+            base_q + " WHERE t.usuario_id=? AND t.fecha=? ORDER BY t.id", (user_id, hoy)).fetchall()]
     conn.close()
 
-    # --- Configuración del Libro ---
+    # Agrupar por categoría
+    cats_dict = defaultdict(list)
+    for t in todas:
+        cats_dict[t["categoria"] or "General"].append(t)
+
+    # Construir el libro
     wb = Workbook()
-    
-    # Estilos comunes
-    header_fill = PatternFill(start_color="343A40", end_color="343A40", fill_type="solid")
-    header_font = Font(bold=True, color="FFFFFF")
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
-                         top=Side(style='thin'), bottom=Side(style='thin'))
-    center_align = Alignment(horizontal="center", vertical="center")
+    _hoja_resumen(wb, todas, hoy, admin, username)
+    for idx, (cat_nombre, tareas_cat) in enumerate(sorted(cats_dict.items())):
+        _hoja_categoria(wb, cat_nombre, tareas_cat, idx)
+    _hoja_hoy(wb, tareas_hoy, hoy)
 
-    # Función auxiliar para llenar hojas y no repetir código
-    def llenar_hoja(sheet, datos, titulo):
-        sheet.title = titulo
-        headers = ["ID", "Código", "Descripción", "Categoría", "Fecha", "Estado", "Usuario"]
-        sheet.append(headers)
-        
-        for col in range(1, len(headers) + 1):
-            cell = sheet.cell(row=1, column=col)
-            cell.fill, cell.font, cell.alignment, cell.border = header_fill, header_font, center_align, thin_border
-
-        for fila_num, t in enumerate(datos, start=2):
-            est_txt = "Completada" if t["completada"] == 1 else "Pendiente"
-            row = [t["id"], t["codigo"] or "", t["descripcion"], t["categoria"] or "General", 
-                   t["fecha"] or "-", est_txt, t["username"] or "N/A"]
-            
-            for col_num, value in enumerate(row, start=1):
-                cell = sheet.cell(row=fila_num, column=col_num, value=value)
-                cell.border, cell.alignment = thin_border, center_align
-                if col_num == 6: # Colorear estado
-                    color = "28A745" if est_txt == "Completada" else "FFC107"
-                    cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
-            
-        # Ajustar ancho
-        for col in sheet.columns:
-            max_l = max(len(str(c.value)) for c in col)
-            sheet.column_dimensions[col[0].column_letter].width = max_l + 4
-
-    # --- Crear Hoja 1: Historial ---
-    ws1 = wb.active
-    llenar_hoja(ws1, historial, "Historial Completo")
-
-    # --- Crear Hoja 2: Hoy ---
-    ws2 = wb.create_sheet(title="Tareas de Hoy")
-    llenar_hoja(ws2, tareas_hoy, f"Hoy {hoy}")
-
-    archivo = f"Reporte_Tareas_{hoy}.xlsx"
-    wb.save(archivo)
-    return send_file(archivo, as_attachment=True)
+    # Devolver en memoria (sin guardar en disco)
+    buffer = io.BytesIO()
+    wb.save(buffer); buffer.seek(0)
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=f"Reporte_Tareas_{hoy}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 
 
@@ -602,15 +801,9 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-@app.route("/accesos_rapidos")
-@login_required
-def accesos_rapidos():
-    return render_template("accesos_rapidos.html")
 
 
 # --- ARRANCAR ---
 if __name__ == "__main__":
     inicializar_todo()
-    app.run(debug=True, port=5000)
-
-    
+    app.run(debug=True, port=5000)   
