@@ -375,36 +375,36 @@ def eliminar(id):
 def dashboard():
     user_id = session.get("user_id")
     es_admin = session.get("es_admin")
-    
+
     conn = get_connection()
     cursor = conn.cursor()
 
-    # --- LÓGICA DE FILTRADO POR ROL ---
+    # -----------------------------
+    # Filtro base según rol
+    # -----------------------------
     if es_admin == 1:
-        # Estadísticas Globales para el Admin
-        cursor.execute("SELECT COUNT(*) as total FROM tareas")
-        total = cursor.fetchone()["total"]
-
-        cursor.execute("SELECT COUNT(*) as completadas FROM tareas WHERE completada = 1")
-        completadas = cursor.fetchone()["completadas"]
-        
-        # Opcional: Obtener las últimas 5 tareas de cualquier usuario para el admin
-        cursor.execute("SELECT * FROM tareas ORDER BY id DESC LIMIT 5")
-        ultimas_tareas = cursor.fetchall()
+        filtro = ""
+        params = ()
     else:
-        # Estadísticas Personales para el Usuario
-        cursor.execute("SELECT COUNT(*) as total FROM tareas WHERE usuario_id = ?", (user_id,))
-        total = cursor.fetchone()["total"]
+        filtro = "WHERE usuario_id = ?"
+        params = (user_id,)
 
-        cursor.execute("SELECT COUNT(*) as completadas FROM tareas WHERE completada = 1 AND usuario_id = ?", (user_id,))
-        completadas = cursor.fetchone()["completadas"]
-        
-        # Últimas 5 tareas solo del usuario actual
-        cursor.execute("SELECT * FROM tareas WHERE usuario_id = ? ORDER BY id DESC LIMIT 5", (user_id,))
-        ultimas_tareas = cursor.fetchall()
+    # -----------------------------
+    # UNA sola consulta para estadísticas
+    # -----------------------------
+    cursor.execute(f"""
+        SELECT 
+            COUNT(*) as total,
+            SUM(CASE WHEN completada = 1 THEN 1 ELSE 0 END) as completadas
+        FROM tareas
+        {filtro}
+    """, params)
 
-    # --- CÁLCULOS DE PROGRESO ---
+    stats = cursor.fetchone()
+    total = stats["total"] or 0
+    completadas = stats["completadas"] or 0
     pendientes = total - completadas
+
     porcentaje = round((completadas / total) * 100, 1) if total > 0 else 0
 
     if porcentaje > 70:
@@ -414,18 +414,49 @@ def dashboard():
     else:
         nivel, color_nivel = "Bajo", "danger"
 
+    # -----------------------------
+    # Últimas 5 tareas
+    # -----------------------------
+    cursor.execute(f"""
+        SELECT * FROM tareas
+        {filtro}
+        ORDER BY id DESC
+        LIMIT 5
+    """, params)
+
+    ultimas_tareas = cursor.fetchall()
+
+    # -----------------------------
+    # Datos para gráfico por categoría
+    # -----------------------------
+    cursor.execute(f"""
+        SELECT categoria, COUNT(*) as cantidad
+        FROM tareas
+        {filtro}
+        GROUP BY categoria
+        ORDER BY cantidad DESC
+    """, params)
+
+    datos_categorias = cursor.fetchall()
+
+    categorias = [fila["categoria"] if fila["categoria"] else "General" for fila in datos_categorias]
+    cantidades = [fila["cantidad"] for fila in datos_categorias]
+
     fecha_actual = datetime.now().strftime("%d/%m/%Y")
+
     conn.close()
 
-    return render_template("dashboard.html", 
-                           total=total, 
+    return render_template("dashboard.html",
+                           total=total,
                            completadas=completadas,
-                           pendientes=pendientes, 
+                           pendientes=pendientes,
                            porcentaje=porcentaje,
-                           nivel=nivel, 
+                           nivel=nivel,
                            color_nivel=color_nivel,
                            fecha_actual=fecha_actual,
-                           ultimas_tareas=ultimas_tareas)
+                           ultimas_tareas=ultimas_tareas,
+                           categorias=categorias,
+                           cantidades=cantidades)
 
 
 
@@ -576,3 +607,5 @@ def logout():
 if __name__ == "__main__":
     inicializar_todo()
     app.run(debug=True, port=5000)
+
+    
