@@ -477,13 +477,28 @@ from flask import send_file
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Paleta de colores (tema oscuro coherente con la app)
-_DARK   = "0D1117"; _DARK2 = "161B22"; _ACCENT = "3FB950"; _AMBER = "D29922"
-_BLUE   = "58A6FF"; _PURPLE = "BC8CFF"; _TEAL = "39D3BB"
-_TXT_W  = "E6EDF3"; _TXT_M = "7D8590"; _BDR = "30363D"
+_DARK   = "1A1410"   # fondo principal (marrón muy oscuro)
+_DARK2  = "241C16"   # superficie / paneles (café profundo)
+_ACCENT = "E6A15A"   # acento principal (ámbar cálido)
+_AMBER  = "D18B47"   # naranja tostado
+
+_BLUE   = "C47A5A"   # terracota suave
+_PURPLE = "B07A63"   # arcilla cálida
+_TEAL   = "8F6B50"   # marrón medio cálido
+
+_TXT_W  = "F5EDE6"   # texto principal (marfil cálido)
+_TXT_M  = "B7A79A"   # texto secundario (beige apagado)
+_BDR    = "3A2E25"   # bordes cálidos
+
 _CAT_COLS = [
-    ("1A4A24","3FB950"), ("3D2E00","D29922"), ("0D2040","58A6FF"),
-    ("1E1040","BC8CFF"), ("0A2E2A","39D3BB"), ("3D0F0E","F85149"),
-    ("1A2A40","79C0FF"), ("2D1A00","F0883E"),
+    ("2A1F18","E6A15A"),  # cobre
+    ("332419","D18B47"),  # naranja tostado
+    ("2E1E17","C47A5A"),  # terracota
+    ("2B1B16","B07A63"),  # arcilla
+    ("241A15","8F6B50"),  # café medio
+    ("3A221C","E07A5F"),  # coral cálido
+    ("2F2018","F2A65A"),  # miel
+    ("352317","C97B3C"),  # caramelo
 ]
 
 def _xb():
