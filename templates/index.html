@@ -1,113 +1,166 @@
 {% extends "base.html" %}
+{% block title %}Tareas — Gestor{% endblock %}
+
 {% block content %}
 
-<div class="card shadow-sm mb-4">
-    <div class="card-body">
-        <h5 class="card-title mb-3">Agregar nueva tarea</h5>
-
-        <form action="/agregar" method="post" class="row g-3">
-            <div class="col-md-3">
-                <input name="codigo" class="form-control" placeholder="Código" required>
-            </div>
-
-            <div class="col-md-3">
-                <input name="descripcion" class="form-control" placeholder="Descripción" required>
-            </div>
-
-            <div class="col-md-2">
-                <input name="categoria" class="form-control" placeholder="Categoría">
-            </div>
-
-            <div class="col-md-2">
-                <input name="fecha" type="date" class="form-control">
-            </div>
-
-            <div class="col-md-2">
-                <button type="submit" class="btn btn-primary w-100">
-                    ➕ Agregar
-                </button>
-            </div>
-        </form>
-    </div>
+<!-- ── Add task ─────────────────────────────── -->
+<div class="gcard mb-4">
+  <div class="gcard-header">
+    <span style="color:var(--accent)">＋</span>
+    <span class="gcard-title">Nueva tarea</span>
+  </div>
+  <div class="gcard-body">
+    <form action="/agregar" method="post">
+      <div class="row g-2">
+        <div class="col-sm-6 col-md-3">
+          <input name="codigo" class="form-control" placeholder="Código" autocomplete="off">
+        </div>
+        <div class="col-sm-6 col-md-3">
+          <input name="descripcion" class="form-control" placeholder="Descripción *" required autocomplete="off">
+        </div>
+        <div class="col-sm-6 col-md-2">
+          <input name="categoria" class="form-control" placeholder="Categoría" autocomplete="off">
+        </div>
+        <div class="col-sm-6 col-md-2">
+          <input name="fecha" type="date" class="form-control">
+        </div>
+        <div class="col-12 col-md-2">
+          <button type="submit" class="btn btn-g-primary w-100">＋ Agregar</button>
+        </div>
+      </div>
+    </form>
+  </div>
 </div>
 
-<div class="card shadow-sm">
-    <div class="card-body">
-        <h5 class="card-title mb-3">Lista de tareas</h5>
-        <div class="mb-3">
-            <input type="text" id="buscador" class="form-control" placeholder="🔍 Buscar tarea...">
-        </div>
+<!-- ── Task list ────────────────────────────── -->
+<div class="gcard">
+  <div class="gcard-header">
+    <span style="color:var(--text-muted)">⊞</span>
+    <span class="gcard-title">Lista de tareas</span>
+    <span id="cnt-badge" class="badge-g badge-pending ms-auto" style="font-size:.68rem;"></span>
+  </div>
+  <div class="gcard-body pb-0">
 
-        <div class="table-responsive">
-            <table class="table table-hover align-middle">
-                <thead class="table-dark">
-                    <tr>
-                        <th>Estado</th>
-                        <th>Código</th>
-                        <th>Descripción</th>
-                        <th>Categoría</th>
-                        <th>Fecha</th>
-                        <th>Acciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for tarea in tareas %}
-                    <tr>
-                        <!-- Estado primero -->
-                        <td>
-                            {% if tarea[4] == 1 %}
-                                <span class="badge bg-success">Completada</span>
-                            {% else %}
-                                <span class="badge bg-warning text-dark">Pendiente</span>
-                            {% endif %}
-                        </td>
-
-                        <!-- Código segundo -->
-                        <td>{{ tarea[5] if tarea|length > 5 else '-' }}</td>
-
-                        <td>{{ tarea[1] }}</td>
-                        <td>
-                            <span class="badge bg-info text-dark">
-                                {{ tarea[2] if tarea[2] else "General" }}
-                            </span>
-                        </td>
-                        <td>{{ tarea[3] if tarea[3] else "-" }}</td>
-
-                        <td>
-                            {% if tarea[4] == 0 %}
-                            <a href="/completar/{{ tarea[0] }}" class="btn btn-sm btn-success">✔ Completar</a>
-                            {% else %}
-                            <button class="btn btn-sm btn-secondary" disabled>✔ Hecha</button>
-                            {% endif %}
-                            <a href="/editar/{{ tarea[0] }}" class="btn btn-sm btn-warning">✏ Editar</a>
-                            <a href="/eliminar/{{ tarea[0] }}" class="btn btn-sm btn-danger"
-                               onclick="return confirm('¿Seguro que deseas eliminar esta tarea?');">🗑 Borrar</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-
-            <!-- Paginación -->
-            <nav class="mt-4">
-                <ul class="pagination justify-content-center">
-                    <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-                        <a class="page-link" href="?page={{ page - 1 }}">Anterior</a>
-                    </li>
-
-                    {% for p in range(1, total_pages + 1) %}
-                    <li class="page-item {% if p == page %}active{% endif %}">
-                        <a class="page-link" href="?page={{ p }}">{{ p }}</a>
-                    </li>
-                    {% endfor %}
-
-                    <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-                        <a class="page-link" href="?page={{ page + 1 }}">Siguiente</a>
-                    </li>
-                </ul>
-            </nav>
-        </div>
+    <!-- Search -->
+    <div class="search-wrap mb-3">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="buscador" class="form-control"
+             placeholder="Buscar por código, descripción o categoría…">
     </div>
+
+    <!-- Table -->
+    <div class="table-responsive">
+      <table class="gtable">
+        <thead>
+          <tr>
+            <th>Estado</th>
+            <th>Código</th>
+            <th>Descripción</th>
+            <th>Categoría</th>
+            <th>Fecha</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in tareas %}
+          {#
+            t[0]=id  t[1]=descripcion  t[2]=categoria
+            t[3]=fecha  t[4]=completada  t[5]=codigo  t[6]=usuario_id
+          #}
+          <tr class="{{ 'row-done' if t[4]==1 else '' }}"
+              data-search="{{ (t[5] or '') }} {{ t[1] }} {{ (t[2] or '') }}"
+              style="animation-delay:{{ loop.index0 * 25 }}ms; animation: fadeUp .25s ease both;">
+
+            <td data-label="Estado">
+              {% if t[4]==1 %}
+                <span class="badge-g badge-done">✔ Completada</span>
+              {% else %}
+                <span class="badge-g badge-pending">● Pendiente</span>
+              {% endif %}
+            </td>
+
+            <td data-label="Código" style="font-family:var(--mono); font-size:.78rem;">
+              {{ t[5] if t[5] else '—' }}
+            </td>
+
+            <td data-label="Descripción">{{ t[1] }}</td>
+
+            <td data-label="Categoría">
+              <span class="badge-g badge-cat">{{ t[2] if t[2] else 'General' }}</span>
+            </td>
+
+            <td data-label="Fecha" style="font-family:var(--mono); font-size:.78rem; white-space:nowrap;">
+              {{ t[3] if t[3] else '—' }}
+            </td>
+
+            <td data-label="Acciones" style="white-space:nowrap;">
+              {% if t[4]==0 %}
+                <a href="/completar/{{ t[0] }}" class="btn btn-g-success btn-sm">✔</a>
+              {% else %}
+                <span class="btn btn-g-ghost btn-sm" style="cursor:default; opacity:.4;">✔</span>
+              {% endif %}
+              <a href="/editar/{{ t[0] }}" class="btn btn-g-warning btn-sm">✏</a>
+              <a href="/eliminar/{{ t[0] }}" class="btn btn-g-danger btn-sm"
+                 onclick="return confirm('¿Eliminar esta tarea? No se puede deshacer.')">🗑</a>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" style="text-align:center; padding:3rem; color:var(--text-muted);">
+              <div style="font-size:2rem; margin-bottom:.5rem;">📋</div>
+              No hay tareas todavía. ¡Agrega la primera!
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div id="no-results" style="display:none; text-align:center; padding:2.5rem; color:var(--text-muted);">
+        <div style="font-size:1.8rem; margin-bottom:.5rem;">🔍</div>
+        Ninguna tarea coincide con la búsqueda.
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="py-3 border-top" style="border-color:var(--border)!important;">
+      <ul class="gpagination">
+        <li class="{{ 'disabled' if page <= 1 else '' }}">
+          <a class="gpage-link" href="?page={{ page-1 }}">← Ant</a>
+        </li>
+        {% for p in range(1, total_pages+1) %}
+        <li class="{{ 'active' if p==page else '' }}">
+          <a class="gpage-link" href="?page={{ p }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+        <li class="{{ 'disabled' if page >= total_pages else '' }}">
+          <a class="gpage-link" href="?page={{ page+1 }}">Sig →</a>
+        </li>
+      </ul>
+    </div>
+    {% endif %}
+
+  </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Live counter of pending tasks
+  function updateCounter(){
+    const pending = document.querySelectorAll('tbody tr:not([style*="none"]) .badge-pending').length;
+    const total   = document.querySelectorAll('tbody tr[data-search]:not([style*="none"])').length;
+    const el = document.getElementById('cnt-badge');
+    if(!el) return;
+    if(total === 0){ el.textContent = ''; return; }
+    el.textContent = pending > 0 ? `${pending} pendiente${pending!==1?'s':''}` : '✔ Todo completado';
+    el.className   = 'badge-g ms-auto ' + (pending > 0 ? 'badge-pending' : 'badge-done');
+    el.style.fontSize = '.68rem';
+  }
+  updateCounter();
+  // Recount after search filters
+  const origBuscador = document.getElementById('buscador');
+  if(origBuscador) origBuscador.addEventListener('input', ()=>setTimeout(updateCounter, 10));
+</script>
 {% endblock %}

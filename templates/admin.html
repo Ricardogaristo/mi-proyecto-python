@@ -1,170 +1,229 @@
 {% extends "base.html" %}
+{% block title %}Admin — Gestor{% endblock %}
+
 {% block content %}
 
-<h2 class="mb-4 fw-bold">⚙ Panel Administrativo</h2>
-
-<!-- Filtrado rápido -->
-<div class="row mb-3">
-    <div class="col-md-3">
-        <input type="text" id="buscador" class="form-control" placeholder="Buscar tareas...">
-    </div>
-    <div class="col-md-3">
-        <select id="filtro_estado" class="form-select">
-            <option value="">Todos los estados</option>
-            <option value="Pendiente">Pendiente</option>
-            <option value="Completada">Completada</option>
-        </select>
-    </div>
-    <div class="col-md-3">
-        <select id="filtro_categoria" class="form-select">
-            <option value="">Todas las categorías</option>
-            {% for cat in categorias %}
-                <option value="{{ cat }}">{{ cat }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    <div class="col-md-3">
-        <input type="text" id="filtro_codigo" class="form-control" placeholder="Filtrar por código">
-    </div>
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+  <h4 style="font-weight:700; margin:0;">⚙ Panel Admin</h4>
+  <span style="font-family:var(--mono); font-size:.78rem; color:var(--text-muted);">
+    {{ total }} tarea{{ 's' if total != 1 else '' }} encontrada{{ 's' if total != 1 else '' }}
+  </span>
 </div>
 
-<!-- KPIs resumen -->
-<div class="row g-4 mb-4">
-    <div class="col-md-3">
-        <div class="card text-center shadow p-3">
-            <div class="display-6">📋</div>
-            <h3>{{ total }}</h3>
-            <p class="mb-0">Total tareas</p>
-        </div>
+<!-- ── KPI row ─────────────────────────── -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card blue">
+      <div class="stat-label">Total filtrado</div>
+      <div class="stat-value">{{ total }}</div>
     </div>
-    <div class="col-md-3">
-        <div class="card text-center shadow p-3 bg-success text-white">
-            <div class="display-6">✔</div>
-            <h3>{{ completadas }}</h3>
-            <p class="mb-0">Completadas</p>
-        </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card green">
+      <div class="stat-label">Completadas</div>
+      <div class="stat-value" style="color:var(--accent);">
+        {{ tareas | selectattr(4, 'equalto', 1) | list | length if tareas else 0 }}
+      </div>
     </div>
-    <div class="col-md-3">
-        <div class="card text-center shadow p-3 bg-warning">
-            <div class="display-6">⏳</div>
-            <h3>{{ pendientes }}</h3>
-            <p class="mb-0">Pendientes</p>
-        </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card amber">
+      <div class="stat-label">Pendientes</div>
+      <div class="stat-value" style="color:var(--amber);">
+        {{ tareas | selectattr(4, 'equalto', 0) | list | length if tareas else 0 }}
+      </div>
     </div>
-    <div class="col-md-3">
-        <div class="card text-center shadow p-3 bg-info text-dark">
-            <div class="display-6">📥</div>
-            <h3>{{ exportadas }}</h3>
-            <p class="mb-0">Exportadas</p>
-        </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card red">
+      <div class="stat-label">Página</div>
+      <div class="stat-value" style="font-size:1.5rem;">{{ page }}/{{ total_pages }}</div>
     </div>
+  </div>
 </div>
 
-<!-- Tabla de tareas -->
-<div class="table-responsive">
-    <table class="table table-hover align-middle">
-        <thead class="table-dark">
-            <tr>
-                <th>ID</th>
-                <th>Código</th>
-                <th>Descripción</th>
-                <th>Categoría</th>
-                <th>Fecha</th>
-                <th>Estado</th>
-                <th>Acciones</th>
-            </tr>
+<!-- ── Filters ────────────────────────── -->
+<div class="gcard mb-4">
+  <div class="gcard-header">
+    <span style="color:var(--text-muted)">⊟</span>
+    <span class="gcard-title">Filtros</span>
+  </div>
+  <div class="gcard-body">
+    <div class="row g-2 align-items-end">
+
+      <!-- Client-side search -->
+      <div class="col-sm-6 col-md-3">
+        <label class="form-label">Búsqueda rápida</label>
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="buscador" class="form-control" placeholder="Texto libre…">
+        </div>
+      </div>
+
+      <!-- State filter (server) -->
+      <div class="col-sm-6 col-md-2">
+        <label class="form-label">Estado</label>
+        <select id="sel-estado" class="form-select">
+          <option value="">Todos</option>
+          <option value="Completada" {% if filtro_est=='Completada' %}selected{% endif %}>Completada</option>
+          <option value="Pendiente"  {% if filtro_est=='Pendiente'  %}selected{% endif %}>Pendiente</option>
+        </select>
+      </div>
+
+      <!-- Category filter (server) -->
+      <div class="col-sm-6 col-md-3">
+        <label class="form-label">Categoría</label>
+        <select id="sel-cat" class="form-select">
+          <option value="">Todas</option>
+          {% for cat in categorias %}
+          <option value="{{ cat }}" {% if filtro_cat==cat %}selected{% endif %}>{{ cat }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Code filter (client) -->
+      <div class="col-sm-6 col-md-2">
+        <label class="form-label">Código</label>
+        <input type="text" id="fil-codigo" class="form-control" placeholder="Filtrar…">
+      </div>
+
+      <div class="col-md-2 d-flex gap-2">
+        <button onclick="applyServerFilters()" class="btn btn-g-primary flex-fill">Filtrar</button>
+        <a href="/admin" class="btn btn-g-ghost">✕</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Table ──────────────────────────── -->
+<div class="gcard">
+  <div class="gcard-body p-0">
+    <div class="table-responsive">
+      <table class="gtable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Código</th>
+            <th>Descripción</th>
+            <th>Categoría</th>
+            <th>Fecha</th>
+            <th>Estado</th>
+            <th>Acciones</th>
+          </tr>
         </thead>
         <tbody>
-            {% for tarea in tareas %}
-            <tr>
-                <td>{{ tarea[0] }}</td>
-                <td>{{ tarea[5] if tarea|length > 5 else '-' }}</td>
-                <td>{{ tarea[1] }}</td>
-                <td>{{ tarea[2] if tarea[2] else "General" }}</td>
-                <td>{{ tarea[3] if tarea[3] else "-" }}</td>
-                <td>
-                    {% if tarea[4] == 1 %}
-                        <span class="badge bg-success">Completada</span>
-                    {% else %}
-                        <span class="badge bg-warning text-dark">Pendiente</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if tarea[4] == 0 %}
-                        <a href="/completar/{{ tarea[0] }}" class="btn btn-sm btn-success">✔ Completar</a>
-                    {% else %}
-                        <button class="btn btn-sm btn-secondary" disabled>✔ Hecha</button>
-                    {% endif %}
-                    <a href="/editar/{{ tarea[0] }}" class="btn btn-sm btn-warning">✏ Editar</a>
-                    <a href="/eliminar/{{ tarea[0] }}" class="btn btn-sm btn-danger"
-                       onclick="return confirm('¿Seguro que deseas eliminar esta tarea?');">🗑 Borrar</a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+          {% for t in tareas %}
+          {#
+            t[0]=id  t[1]=descripcion  t[2]=categoria
+            t[3]=fecha  t[4]=completada  t[5]=codigo  t[6]=usuario_id
+          #}
+          <tr class="{{ 'row-done' if t[4]==1 else '' }}"
+              data-search="{{ t[0] }} {{ (t[5] or '') }} {{ t[1] }} {{ (t[2] or '') }}"
+              data-codigo="{{ (t[5] or '') | lower }}">
 
-<!-- Paginación simple -->
-<nav class="mt-4">
-    <ul class="pagination justify-content-center">
-        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-            <a class="page-link" href="?page={{ page - 1 }}">Anterior</a>
+            <td data-label="ID" style="font-family:var(--mono); font-size:.75rem; color:var(--text-muted);">
+              #{{ t[0] }}
+            </td>
+            <td data-label="Código" style="font-family:var(--mono); font-size:.78rem; color:var(--text-muted);">
+              {{ t[5] if t[5] else '—' }}
+            </td>
+            <td data-label="Descripción">{{ t[1] }}</td>
+            <td data-label="Categoría">
+              <span class="badge-g badge-cat">{{ t[2] if t[2] else 'General' }}</span>
+            </td>
+            <td data-label="Fecha" style="font-family:var(--mono); font-size:.78rem; white-space:nowrap;">
+              {{ t[3] if t[3] else '—' }}
+            </td>
+            <td data-label="Estado">
+              {% if t[4]==1 %}
+                <span class="badge-g badge-done">✔ Completada</span>
+              {% else %}
+                <span class="badge-g badge-pending">● Pendiente</span>
+              {% endif %}
+            </td>
+            <td data-label="Acciones" style="white-space:nowrap;">
+              {% if t[4]==0 %}
+                <a href="/completar/{{ t[0] }}" class="btn btn-g-success btn-sm">✔</a>
+              {% else %}
+                <span class="btn btn-g-ghost btn-sm" style="cursor:default; opacity:.4;">✔</span>
+              {% endif %}
+              <a href="/editar/{{ t[0] }}" class="btn btn-g-warning btn-sm">✏</a>
+              <a href="/eliminar/{{ t[0] }}" class="btn btn-g-danger btn-sm"
+                 onclick="return confirm('¿Eliminar esta tarea?')">🗑</a>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7" style="text-align:center; padding:3rem; color:var(--text-muted);">
+              <div style="font-size:1.8rem; margin-bottom:.5rem;">🔍</div>
+              No hay tareas con los filtros seleccionados.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div id="no-results" style="display:none; text-align:center; padding:2.5rem; color:var(--text-muted);">
+        <div style="font-size:1.8rem; margin-bottom:.5rem;">🔍</div>
+        Sin resultados para la búsqueda.
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="py-3 px-3 border-top" style="border-color:var(--border)!important;">
+      <ul class="gpagination">
+        <li class="{{ 'disabled' if page<=1 else '' }}">
+          <a class="gpage-link" href="?page={{ page-1 }}&categoria={{ filtro_cat }}&estado={{ filtro_est }}">← Ant</a>
         </li>
-        {% for p in range(1, total_pages + 1) %}
-        <li class="page-item {% if p == page %}active{% endif %}">
-            <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+        {% for p in range(1, total_pages+1) %}
+        <li class="{{ 'active' if p==page else '' }}">
+          <a class="gpage-link" href="?page={{ p }}&categoria={{ filtro_cat }}&estado={{ filtro_est }}">{{ p }}</a>
         </li>
         {% endfor %}
-        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-            <a class="page-link" href="?page={{ page + 1 }}">Siguiente</a>
+        <li class="{{ 'disabled' if page>=total_pages else '' }}">
+          <a class="gpage-link" href="?page={{ page+1 }}&categoria={{ filtro_cat }}&estado={{ filtro_est }}">Sig →</a>
         </li>
-    </ul>
-</nav>
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</div>
 
-<!-- Scripts de filtrado rápido -->
+{% endblock %}
+
+{% block scripts %}
 <script>
-function aplicarFiltros() {
-    // 1. Capturamos todos los valores de los filtros
-    let buscador = document.getElementById("buscador").value.toLowerCase();
-    let filtroEstado = document.getElementById("filtro_estado").value;
-    let filtroCategoria = document.getElementById("filtro_categoria").value;
-    let filtroCodigo = document.getElementById("filtro_codigo").value.toLowerCase();
+  // ── Server-side filter (category + state) ──
+  function applyServerFilters(){
+    const estado = document.getElementById('sel-estado').value;
+    const cat    = document.getElementById('sel-cat').value;
+    const url    = new URL(window.location.href);
+    estado ? url.searchParams.set('estado', estado) : url.searchParams.delete('estado');
+    cat    ? url.searchParams.set('categoria', cat)  : url.searchParams.delete('categoria');
+    url.searchParams.set('page', 1);
+    window.location.href = url.toString();
+  }
+  // Trigger on select change too
+  document.getElementById('sel-estado').addEventListener('change', applyServerFilters);
+  document.getElementById('sel-cat').addEventListener('change', applyServerFilters);
 
-    // 2. Seleccionamos todas las filas de la tabla
-    let filas = document.querySelectorAll("tbody tr");
-
-    filas.forEach(fila => {
-        // Extraemos el contenido de las celdas específicas
-        // Recordatorio: cells[1] es Código, cells[3] es Categoría, cells[5] es Estado
-        let textoFila = fila.innerText.toLowerCase();
-        let textoCodigo = fila.cells[1].innerText.toLowerCase();
-        let textoCategoria = fila.cells[3].innerText.trim();
-        let textoEstado = fila.cells[5].innerText.trim();
-
-        // 3. Verificamos si la fila cumple TODAS las condiciones
-        let cumpleBuscador = buscador === "" || textoFila.includes(buscador);
-        let cumpleCodigo = filtroCodigo === "" || textoCodigo.includes(filtroCodigo);
-        let cumpleEstado = filtroEstado === "" || textoEstado === filtroEstado;
-        
-        // Manejo especial para categorías "General" o vacías
-        let categoriaNormalizada = textoCategoria === "General" ? "" : textoCategoria;
-        let cumpleCategoria = filtroCategoria === "" || textoCategoria === filtroCategoria;
-
-        // 4. Decisión final: Si cumple todo, se muestra, si no, se oculta
-        if (cumpleBuscador && cumpleCodigo && cumpleEstado && cumpleCategoria) {
-            fila.style.display = "";
-        } else {
-            fila.style.display = "none";
-        }
+  // ── Client-side search (text + code) ──
+  function clientFilter(){
+    const q    = document.getElementById('buscador').value.toLowerCase().trim();
+    const cod  = document.getElementById('fil-codigo').value.toLowerCase().trim();
+    const rows = document.querySelectorAll('tbody tr[data-search]');
+    let vis = 0;
+    rows.forEach(tr => {
+      const matchQ   = !q   || tr.dataset.search.toLowerCase().includes(q);
+      const matchCod = !cod || tr.dataset.codigo.includes(cod);
+      const show = matchQ && matchCod;
+      tr.style.display = show ? '' : 'none';
+      if(show) vis++;
     });
-}
-
-// 5. Escuchamos cambios en todos los inputs para ejecutar la misma función
-document.getElementById("buscador").addEventListener("keyup", aplicarFiltros);
-document.getElementById("filtro_codigo").addEventListener("keyup", aplicarFiltros);
-document.getElementById("filtro_estado").addEventListener("change", aplicarFiltros);
-document.getElementById("filtro_categoria").addEventListener("change", aplicarFiltros);
+    document.getElementById('no-results').style.display = (vis===0 && (q||cod)) ? '' : 'none';
+  }
+  document.getElementById('buscador').addEventListener('input', clientFilter);
+  document.getElementById('fil-codigo').addEventListener('input', clientFilter);
 </script>
-
 {% endblock %}
