@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}Formación — Gestor{% endblock %}
+
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+  <div>
+    <h4 style="font-weight:700; margin:0;">🎓 Formación</h4>
+    <div style="font-family:var(--mono); font-size:.75rem; color:var(--text-muted); margin-top:.2rem;">
+      Gestión de alumnos · {{ alumnos|length }} alumno{{ 's' if alumnos|length != 1 else '' }}
+    </div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('formacion.exportar_excel') }}" class="btn btn-g-success">
+      ⬇ Descargar Excel
+    </a>
+    <a href="{{ url_for('formacion.formacion_dashboard') }}" class="btn btn-g-primary">
+      ◈ Ver Dashboard
+    </a>
+    {% if alumnos %}
+    <form method="POST" action="{{ url_for('formacion.borrar_todos') }}"
+          onsubmit="return confirm('¿Borrar TODOS los alumnos? Esta acción no se puede deshacer.')">
+      <button type="submit" class="btn btn-g-danger">🗑 Borrar todos</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Alertas -->
+{% for err in errores %}
+<div class="galert galert-danger">✖ {{ err }}</div>
+{% endfor %}
+{% if exito %}
+<div class="galert galert-success">{{ exito }}</div>
+{% endif %}
+
+<!-- ── Importar Excel ──────────────────────────────────────────────────────── -->
+<div class="gcard mb-4">
+  <div class="gcard-header">
+    <span style="color:var(--accent)">⬆</span>
+    <span class="gcard-title">Importar alumnos desde Excel</span>
+  </div>
+  <div class="gcard-body">
+    <form method="POST" enctype="multipart/form-data">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-6">
+          <label class="form-label">Archivo Excel (.xlsx / .xls)</label>
+          <input type="file" name="excel" accept=".xlsx,.xls" class="form-control" required>
+          <div style="margin-top:.5rem; font-size:.78rem; color:var(--text-muted);">
+            El Excel debe tener columnas:
+            <span style="font-family:var(--mono); color:var(--blue);">Nombre del curso</span>,
+            <span style="font-family:var(--mono); color:var(--blue);">Nombre</span>,
+            <span style="font-family:var(--mono); color:var(--blue);">Progreso (%)</span>,
+            <span style="font-family:var(--mono); color:var(--blue);">Exámenes</span>,
+            <span style="font-family:var(--mono); color:var(--blue);">Fecha Inicio</span>,
+            <span style="font-family:var(--mono); color:var(--blue);">Fecha Fin</span>,
+            <span style="font-family:var(--mono); color:var(--blue);">Teléfono</span>
+            (el orden puede variar, se detectan automáticamente).
+          </div>
+        </div>
+        <div class="col-md-3">
+          <button type="submit" class="btn btn-g-primary w-100">⬆ Importar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Lista de alumnos ───────────────────────────────────────────────────── -->
+<div class="gcard">
+  <div class="gcard-header">
+    <span style="color:var(--text-muted)">👥</span>
+    <span class="gcard-title">Lista de alumnos</span>
+    <span class="badge-g badge-pending ms-auto" style="font-size:.68rem;">
+      {{ alumnos|length }} registros
+    </span>
+  </div>
+  <div class="gcard-body pb-0">
+
+    <!-- Búsqueda rápida -->
+    <div class="search-wrap mb-3">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="buscador" class="form-control"
+             placeholder="Buscar por nombre o curso…">
+    </div>
+
+    <div class="table-responsive">
+      <table class="gtable">
+        <thead>
+          <tr>
+            <th>Nombre del curso</th>
+            <th>Nombre</th>
+            <th>Progreso</th>
+            <th>Exámenes</th>
+            <th>Fecha Inicio</th>
+            <th>Fecha Fin</th>
+            <th>Estado</th>
+            <th>Teléfono</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in alumnos %}
+          {% set curso_val = a['curso'] if a['curso'] else '—' %}
+          {% set nombre_val = a['nombre'] %}
+          {% set examenes_val = a['examenes'] if a['examenes'] is not none else 0 %}
+          <tr data-search="{{ nombre_val }} {{ curso_val }}">
+
+            <td data-label="Curso">
+              <span class="badge-g badge-cat">{{ curso_val }}</span>
+            </td>
+
+            <td data-label="Nombre" style="font-weight:600;">{{ nombre_val }}</td>
+
+            <td data-label="Progreso">
+              <div style="display:flex; align-items:center; gap:.6rem;">
+                <div style="flex:1; height:7px; background:var(--bg3); border-radius:99px; overflow:hidden; min-width:70px;">
+                  <div style="height:100%; width:{{ [a['progreso'], 100]|min }}%;
+                              background:{{ 'var(--accent)' if a['progreso'] >= 75 else ('var(--amber)' if a['progreso'] >= 50 else 'var(--red)') }};
+                              border-radius:99px;"></div>
+                </div>
+                <span style="font-family:var(--mono); font-size:.8rem; min-width:38px;">{{ a['progreso'] }}%</span>
+              </div>
+            </td>
+
+            <td data-label="Exámenes" style="font-family:var(--mono); font-size:.85rem; text-align:center;">
+              {{ examenes_val }}
+            </td>
+
+            <td data-label="Fecha Inicio" style="font-family:var(--mono); font-size:.78rem; white-space:nowrap;">
+              {{ a['fecha_inicio'] if a['fecha_inicio'] else '—' }}
+            </td>
+
+            <td data-label="Fecha Fin" style="font-family:var(--mono); font-size:.78rem; white-space:nowrap;">
+              {{ a['fecha_fin'] if a['fecha_fin'] else '—' }}
+            </td>
+
+            <td data-label="Estado">
+              {% if a['supera_75'] == 1 %}
+                <span class="badge-g badge-done">✔ Supera 75%</span>
+              {% else %}
+                <span class="badge-g badge-pending">● Bajo 75%</span>
+              {% endif %}
+            </td>
+
+            <!-- Teléfono editable inline -->
+            <td data-label="Teléfono" style="min-width:160px;">
+              <form method="POST" action="{{ url_for('formacion.editar_alumno', alumno_id=a['id']) }}"
+                    style="display:flex; gap:.4rem; align-items:center;">
+                <input type="text" name="telefono"
+                       value="{{ a['telefono'] if a['telefono'] else '' }}"
+                       class="form-control" style="font-size:.78rem; padding:.3rem .6rem; min-width:110px;"
+                       placeholder="+549…">
+                <button type="submit" class="btn btn-g-ghost btn-sm" title="Guardar teléfono">💾</button>
+              </form>
+            </td>
+
+            <td data-label="Acciones" style="white-space:nowrap;">
+              {% if a['telefono'] %}
+                <a href="{{ url_for('formacion.whatsapp_alumno', alumno_id=a['id']) }}"
+                   target="_blank" class="btn btn-g-success btn-sm" title="Enviar WhatsApp">
+                  💬 WA
+                </a>
+              {% else %}
+                <span class="btn btn-g-ghost btn-sm" style="opacity:.35; cursor:default;" title="Ingresa un teléfono primero">
+                  💬 WA
+                </span>
+              {% endif %}
+              <a href="{{ url_for('formacion.eliminar_alumno', alumno_id=a['id']) }}"
+                 class="btn btn-g-danger btn-sm"
+                 onclick="return confirm('¿Eliminar a {{ nombre_val }}? Esta acción no se puede deshacer.')">🗑</a>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="9" style="text-align:center; padding:3rem; color:var(--text-muted);">
+              <div style="font-size:2rem; margin-bottom:.5rem;">🎓</div>
+              No hay alumnos aún. Importá un Excel para comenzar.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div id="no-results" style="display:none; text-align:center; padding:2.5rem; color:var(--text-muted);">
+        <div style="font-size:1.8rem; margin-bottom:.5rem;">🔍</div>
+        Ningún alumno coincide con la búsqueda.
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

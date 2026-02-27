@@ -1,0 +1,821 @@
+{% extends "base.html" %}
+{% block title %}Dashboard Formación — Gestor{% endblock %}
+
+{% block content %}
+
+<style>
+  /* ── Selector de cursos ── */
+  .course-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    padding: .9rem 1.1rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 1.4rem;
+  }
+  .course-tab {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .38rem .9rem;
+    border-radius: 7px;
+    border: 1.5px solid var(--border);
+    background: var(--bg3);
+    color: var(--text-muted);
+    font-size: .8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .course-tab:hover { border-color: var(--accent); color: var(--text); }
+  .course-tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .course-tab .ct-badge {
+    background: rgba(0,0,0,.18);
+    color: inherit;
+    font-size: .7rem;
+    padding: .1rem .4rem;
+    border-radius: 99px;
+    font-family: var(--mono);
+  }
+  .course-tab.active .ct-badge { background: rgba(255,255,255,.25); }
+
+  /* ── KPIs activos ── */
+  .kpi-curso-nombre {
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--accent);
+    margin-top: .15rem;
+    font-weight: 600;
+    letter-spacing: .02em;
+  }
+
+  /* ── Range checkboxes ── */
+  .range-filters { display:flex; flex-wrap:wrap; gap:.6rem; margin-bottom:1.1rem; }
+  .range-pill {
+    display:flex; align-items:center; gap:.45rem;
+    padding:.35rem .85rem .35rem .55rem;
+    border-radius:99px; border:1.5px solid transparent;
+    cursor:pointer; font-size:.8rem; font-weight:600;
+    transition:all .15s; user-select:none;
+  }
+  .range-pill input[type=checkbox] { width:15px; height:15px; margin:0; cursor:pointer; flex-shrink:0; }
+  .range-pill.rp-red   { background:rgba(248,81,73,.12);  border-color:rgba(248,81,73,.4);  color:#f85149; }
+  .range-pill.rp-amber { background:rgba(210,153,34,.12); border-color:rgba(210,153,34,.4); color:#d29922; }
+  .range-pill.rp-blue  { background:rgba(88,166,255,.12); border-color:rgba(88,166,255,.4); color:#58a6ff; }
+  .range-pill.rp-green { background:rgba(63,185,80,.12);  border-color:rgba(63,185,80,.4);  color:#3fb950; }
+  .range-pill.rp-red   input { accent-color:#f85149; }
+  .range-pill.rp-amber input { accent-color:#d29922; }
+  .range-pill.rp-blue  input { accent-color:#58a6ff; }
+  .range-pill.rp-green input { accent-color:#3fb950; }
+  .range-pill:has(input:not(:checked)) { opacity:.5; }
+
+  .range-summary {
+    display:flex; flex-wrap:wrap; gap:.4rem 1.1rem;
+    margin-bottom:.6rem; font-size:.78rem; color:var(--text-muted);
+  }
+  .snap-legend { display:flex; gap:.8rem; flex-wrap:wrap; font-size:.8rem; margin-bottom:1rem; }
+  .snap-legend label { display:flex; align-items:center; gap:.4rem; cursor:pointer; font-weight:600; }
+  .snap-legend input { width:14px; height:14px; margin:0; cursor:pointer; }
+</style>
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h4 style="font-weight:700; margin:0;">📊 Dashboard de Formación</h4>
+    <div style="font-family:var(--mono); font-size:.75rem; color:var(--text-muted); margin-top:.2rem;">
+      Rendimiento por curso · {{ cursos|length }} curso{{ 's' if cursos|length != 1 else '' }} · {{ alumnos|length }} alumno{{ 's' if alumnos|length != 1 else '' }}
+    </div>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('formacion.exportar_excel') }}" class="btn btn-g-success">
+      ⬇ Descargar Excel
+    </a>
+    <a href="{{ url_for('formacion.formacion') }}" class="btn btn-g-ghost">← Volver a Formación</a>
+  </div>
+</div>
+
+<!-- ── Selector de cursos ──────────────────────────────────────────────────── -->
+<div class="course-bar" id="courseBar">
+  <button class="course-tab active" data-curso="__ALL__">
+    🎓 Todos los cursos
+    <span class="ct-badge">{{ alumnos|length }}</span>
+  </button>
+  {% for c in cursos %}
+  {% set cnt = alumnos | selectattr('curso', 'equalto', c) | list | length %}
+  <button class="course-tab" data-curso="{{ c }}">
+    {{ c }}
+    <span class="ct-badge">{{ cnt }}</span>
+  </button>
+  {% endfor %}
+</div>
+
+<!-- ── KPI Cards (actualizan con JS) ─────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card blue">
+      <div class="stat-label">Total alumnos</div>
+      <div class="stat-value" id="kpi-total">{{ alumnos|length }}</div>
+      <div class="kpi-curso-nombre" id="kpi-curso-lbl">Todos los cursos</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card green">
+      <div class="stat-label">Superan 75%</div>
+      <div class="stat-value" id="kpi-superan" style="color:var(--accent);">{{ superan_75 }}</div>
+      <div style="font-size:.8rem; color:var(--text-muted);">alumnos</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card amber">
+      <div class="stat-label">Bajo 75%</div>
+      <div class="stat-value" id="kpi-nosuperan" style="color:var(--amber);">{{ no_superan }}</div>
+      <div style="font-size:.8rem; color:var(--text-muted);">alumnos</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card red">
+      <div class="stat-label">Tasa de éxito</div>
+      <div class="stat-value" id="kpi-pct" style="color:var(--blue); font-size:1.8rem;">{{ pct_exito }}%</div>
+      <div style="font-size:.8rem; color:var(--text-muted);" id="kpi-examenes">
+        {{ total_examenes }} exámenes
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Barra tasa de éxito ─────────────────────────────────────────────────── -->
+<div class="gcard mb-4">
+  <div class="gcard-header">
+    <span style="color:var(--accent)">▰</span>
+    <span class="gcard-title">Tasa de éxito</span>
+    <span style="margin-left:auto; font-family:var(--mono); font-size:.78rem; color:var(--accent);" id="bar-pct-lbl">
+      {{ pct_exito }}%
+    </span>
+  </div>
+  <div class="gcard-body">
+    <div style="height:10px; background:var(--bg3); border-radius:99px; overflow:hidden;">
+      <div id="bar-pct-fill" style="height:100%; width:{{ pct_exito }}%;
+            background:linear-gradient(90deg,var(--accent),#4dc663);
+            border-radius:99px; transition:width .6s ease;"></div>
+    </div>
+    <div class="d-flex justify-content-between mt-2"
+         style="font-family:var(--mono); font-size:.72rem; color:var(--text-muted);">
+      <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
+    </div>
+    <div class="mt-3 d-flex gap-3 flex-wrap" style="font-size:.85rem; color:var(--text-muted);">
+      <span>📊 Progreso promedio: <strong style="color:var(--text);" id="bar-avg">{{ avg_progreso }}%</strong></span>
+      <span>📝 Exámenes realizados: <strong style="color:var(--text);" id="bar-examenes">{{ total_examenes }}</strong></span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Gráfico progreso con filtros por rango ─────────────────────────────── -->
+<div class="gcard mb-4">
+  <div class="gcard-header">
+    <span style="color:var(--blue)">◉</span>
+    <span class="gcard-title">Progreso por alumno</span>
+    <span style="font-size:.72rem; color:var(--text-muted); margin-left:auto;" id="lbl-visible-count">
+      {{ alumnos|length }} alumnos
+    </span>
+  </div>
+  <div class="gcard-body">
+    <div class="range-filters">
+      <label class="range-pill rp-red">
+        <input type="checkbox" class="rng-chk" data-range="0" checked>
+        🔴 0 – 24% <span class="rng-count" id="cnt-0" style="opacity:.7;"></span>
+      </label>
+      <label class="range-pill rp-amber">
+        <input type="checkbox" class="rng-chk" data-range="25" checked>
+        🟡 25 – 49% <span class="rng-count" id="cnt-25" style="opacity:.7;"></span>
+      </label>
+      <label class="range-pill rp-blue">
+        <input type="checkbox" class="rng-chk" data-range="50" checked>
+        🔵 50 – 74% <span class="rng-count" id="cnt-50" style="opacity:.7;"></span>
+      </label>
+      <label class="range-pill rp-green">
+        <input type="checkbox" class="rng-chk" data-range="75" checked>
+        🟢 ≥ 75% <span class="rng-count" id="cnt-75" style="opacity:.7;"></span>
+      </label>
+    </div>
+    <div class="range-summary" id="rangeSummary"></div>
+    <div style="position:relative; overflow-y:auto;">
+      <canvas id="chartBarras"></canvas>
+    </div>
+    <div id="no-chart-data" style="display:none; text-align:center; padding:2.5rem; color:var(--text-muted);">
+      <div style="font-size:1.8rem; margin-bottom:.5rem;">🔍</div>
+      Ningún rango seleccionado o no hay alumnos para este filtro.
+    </div>
+  </div>
+</div>
+
+<!-- ── Dona + distribución por rango ──────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  <div class="col-lg-4">
+    <div class="gcard h-100">
+      <div class="gcard-header">
+        <span style="color:var(--accent)">◎</span>
+        <span class="gcard-title">Distribución</span>
+      </div>
+      <div class="gcard-body" style="display:flex; align-items:center; justify-content:center;">
+        <canvas id="chartDona" style="max-height:210px; max-width:210px;"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="gcard h-100">
+      <div class="gcard-header">
+        <span style="color:var(--amber)">▤</span>
+        <span class="gcard-title">Alumnos por rango de progreso</span>
+      </div>
+      <div class="gcard-body">
+        <canvas id="chartRangos" style="max-height:220px;"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Guardar snapshot ───────────────────────────────────────────────────── -->
+<div class="gcard mb-4">
+  <div class="gcard-header">
+    <span style="color:var(--amber)">📸</span>
+    <span class="gcard-title">Guardar estado actual como snapshot</span>
+  </div>
+  <div class="gcard-body">
+    <form method="POST" action="{{ url_for('formacion.guardar_snapshot') }}">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-5">
+          <label class="form-label">Etiqueta del snapshot</label>
+          <input type="text" name="label" class="form-control"
+                 placeholder="Ej: Semana 1 · Marzo 2026" autocomplete="off">
+        </div>
+        <div class="col-md-3">
+          <button type="submit" class="btn btn-g-warning w-100">📸 Guardar snapshot</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Historial de snapshots ─────────────────────────────────────────────── -->
+{% if snapshots %}
+<div class="gcard mb-4">
+  <div class="gcard-header">
+    <span style="color:var(--blue)">📈</span>
+    <span class="gcard-title">Evolución histórica</span>
+    <span style="font-size:.72rem; color:var(--text-muted); margin-left:auto;">
+      {{ snapshots|length }} snapshot{{ 's' if snapshots|length != 1 else '' }}
+    </span>
+  </div>
+  <div class="gcard-body">
+    <div class="snap-legend">
+      <label>
+        <input type="checkbox" id="chk-exito" checked style="accent-color:#3fb950;">
+        <span style="color:#3fb950;">●</span> Tasa de éxito (%)
+      </label>
+      <label>
+        <input type="checkbox" id="chk-avg" checked style="accent-color:#58a6ff;">
+        <span style="color:#58a6ff;">●</span> Progreso promedio (%)
+      </label>
+      <label>
+        <input type="checkbox" id="chk-total" style="accent-color:#d29922;">
+        <span style="color:#d29922;">●</span> Total alumnos
+      </label>
+    </div>
+    <canvas id="chartHistorial" style="max-height:280px;"></canvas>
+    <div class="table-responsive mt-4">
+      <table class="gtable">
+        <thead>
+          <tr>
+            <th>Etiqueta</th><th>Fecha</th><th>Alumnos</th>
+            <th>Superan 75%</th><th>Tasa éxito</th><th>Prog. promedio</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in snapshots|reverse %}
+          <tr>
+            <td style="font-weight:600;">{{ s['label'] }}</td>
+            <td style="font-family:var(--mono); font-size:.78rem;">{{ s['fecha'] }}</td>
+            <td style="font-family:var(--mono); text-align:center;">{{ s['total'] }}</td>
+            <td style="font-family:var(--mono); text-align:center; color:var(--accent);">{{ s['superan_75'] }}</td>
+            <td>
+              <span class="badge-g {{ 'badge-done' if s['pct_exito'] >= 75 else ('badge-pending' if s['pct_exito'] >= 50 else 'badge-cat') }}">
+                {{ s['pct_exito'] }}%
+              </span>
+            </td>
+            <td style="font-family:var(--mono); font-size:.82rem;">{{ s['avg_progreso'] }}%</td>
+            <td>
+              <a href="{{ url_for('formacion.borrar_snapshot', snap_id=s['id']) }}"
+                 class="btn btn-g-danger btn-sm"
+                 onclick="return confirm('¿Borrar este snapshot?')">🗑</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Historial de alumnos ───────────────────────────────────────────────── -->
+<div class="gcard">
+  <div class="gcard-header">
+    <span style="color:var(--text-muted)">🗂</span>
+    <span class="gcard-title">Alumnos del curso</span>
+    <span class="badge-g badge-pending ms-auto" style="font-size:.68rem;" id="lbl-table-count">
+      {{ alumnos|length }} registros
+    </span>
+  </div>
+  <div class="gcard-body pb-0">
+    <div class="search-wrap mb-3">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="buscador" class="form-control" placeholder="Buscar alumno…">
+    </div>
+    <div class="table-responsive">
+      <table class="gtable" id="tabla-historial">
+        <thead>
+          <tr>
+            <th>Curso</th><th>Nombre</th><th>Progreso</th>
+            <th>Exámenes</th><th>Inicio</th><th>Fin</th><th>Estado</th><th>Importado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in alumnos %}
+          {% set p = a['progreso'] %}
+          {% set rango = '75' if p >= 75 else ('50' if p >= 50 else ('25' if p >= 25 else '0')) %}
+          <tr data-search="{{ a['nombre'] }} {{ a['curso'] if a['curso'] else '' }}"
+              data-rango="{{ rango }}"
+              data-curso="{{ a['curso'] if a['curso'] else '' }}">
+            <td data-label="Curso">
+              <span class="badge-g badge-cat">{{ a['curso'] if a['curso'] else '—' }}</span>
+            </td>
+            <td data-label="Nombre" style="font-weight:600;">{{ a['nombre'] }}</td>
+            <td data-label="Progreso">
+              <div style="display:flex; align-items:center; gap:.6rem;">
+                <div style="flex:1; height:6px; background:var(--bg3); border-radius:99px; overflow:hidden; min-width:60px;">
+                  <div style="height:100%; width:{{ [p,100]|min }}%;
+                              background:{{ 'var(--accent)' if p >= 75 else ('var(--blue)' if p >= 50 else ('var(--amber)' if p >= 25 else 'var(--red)')) }};
+                              border-radius:99px;"></div>
+                </div>
+                <span style="font-family:var(--mono); font-size:.78rem; min-width:38px;">{{ p }}%</span>
+              </div>
+            </td>
+            <td style="font-family:var(--mono); font-size:.83rem; text-align:center;">
+              {{ a['examenes'] if a['examenes'] is not none else 0 }}
+            </td>
+            <td style="font-family:var(--mono); font-size:.78rem; white-space:nowrap;">
+              {{ a['fecha_inicio'] if a['fecha_inicio'] else '—' }}
+            </td>
+            <td style="font-family:var(--mono); font-size:.78rem; white-space:nowrap;">
+              {{ a['fecha_fin'] if a['fecha_fin'] else '—' }}
+            </td>
+            <td>
+              {% if a['supera_75'] == 1 %}
+                <span class="badge-g badge-done">✔ Supera 75%</span>
+              {% else %}
+                <span class="badge-g badge-pending">● Bajo 75%</span>
+              {% endif %}
+            </td>
+            <td style="font-family:var(--mono); font-size:.72rem; color:var(--text-muted); white-space:nowrap;">
+              {{ a['created_at'][:10] if a['created_at'] else '—' }}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8" style="text-align:center; padding:3rem; color:var(--text-muted);">
+              <div style="font-size:2rem; margin-bottom:.5rem;">📋</div>
+              No hay historial de alumnos aún.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div id="no-results" style="display:none; text-align:center; padding:2.5rem; color:var(--text-muted);">
+        <div style="font-size:1.8rem; margin-bottom:.5rem;">🔍</div>
+        Sin resultados para la búsqueda.
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+/* ════════════════════════════════════════════════════════
+   DATOS DESDE JINJA
+═══════════════════════════════════════════════════════════ */
+const ALL_ALUMNOS = {{ alumnos | tojson }};
+
+const isLight   = document.body.classList.contains('light');
+const gridColor = isLight ? 'rgba(0,0,0,.08)'  : 'rgba(255,255,255,.06)';
+const textColor = isLight ? '#636c76'           : '#7d8590';
+const bgTT      = isLight ? '#fff'              : '#161b22';
+const bdTT      = isLight ? '#d0d7de'           : '#30363d';
+const txTT      = isLight ? '#24292f'           : '#e6edf3';
+const TT = { backgroundColor:bgTT, borderColor:bdTT, borderWidth:1, titleColor:txTT, bodyColor:textColor };
+
+/* ════════════════════════════════════════════════════════
+   ESTADO ACTIVO
+═══════════════════════════════════════════════════════════ */
+let activeCurso = '__ALL__';
+
+function alumnosCurso() {
+  if (activeCurso === '__ALL__') return ALL_ALUMNOS;
+  return ALL_ALUMNOS.filter(a => a.curso === activeCurso);
+}
+
+/* ════════════════════════════════════════════════════════
+   HELPERS DE RANGO
+═══════════════════════════════════════════════════════════ */
+function getRange(p) {
+  return p >= 75 ? '75' : p >= 50 ? '50' : p >= 25 ? '25' : '0';
+}
+const RCOL = {
+  '0':  { bar:'rgba(248,81,73,.78)',   bd:'#f85149' },
+  '25': { bar:'rgba(210,153,34,.78)',  bd:'#d29922' },
+  '50': { bar:'rgba(88,166,255,.78)',  bd:'#58a6ff' },
+  '75': { bar:'rgba(63,185,80,.78)',   bd:'#3fb950' },
+};
+const RLBL = { '0':'0–24%','25':'25–49%','50':'50–74%','75':'≥75%' };
+
+function activeRanges() {
+  return [...document.querySelectorAll('.rng-chk')]
+    .filter(c => c.checked).map(c => c.dataset.range);
+}
+
+/* ════════════════════════════════════════════════════════
+   SELECTOR DE CURSOS
+═══════════════════════════════════════════════════════════ */
+document.querySelectorAll('.course-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.course-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeCurso = btn.dataset.curso;
+    updateAll();
+  });
+});
+
+/* ════════════════════════════════════════════════════════
+   KPIs
+═══════════════════════════════════════════════════════════ */
+function updateKPIs(pool) {
+  const total    = pool.length;
+  const sup      = pool.filter(a => a.supera_75 === 1).length;
+  const nosup    = total - sup;
+  const pct      = total ? Math.round(sup / total * 1000) / 10 : 0;
+  const avg      = total ? Math.round(pool.reduce((s,a) => s + a.progreso, 0) / total * 10) / 10 : 0;
+  const examenes = pool.reduce((s,a) => s + (a.examenes || 0), 0);
+
+  document.getElementById('kpi-total').textContent    = total;
+  document.getElementById('kpi-superan').textContent  = sup;
+  document.getElementById('kpi-nosuperan').textContent= nosup;
+  document.getElementById('kpi-pct').textContent      = pct + '%';
+  document.getElementById('kpi-examenes').textContent = examenes + ' exámenes';
+  document.getElementById('kpi-curso-lbl').textContent =
+    activeCurso === '__ALL__' ? 'Todos los cursos' : activeCurso;
+
+  // Barra
+  document.getElementById('bar-pct-lbl').textContent  = pct + '%';
+  document.getElementById('bar-pct-fill').style.width = pct + '%';
+  document.getElementById('bar-avg').textContent      = avg + '%';
+  document.getElementById('bar-examenes').textContent = examenes;
+}
+
+/* ════════════════════════════════════════════════════════
+   CONTEOS POR RANGO
+═══════════════════════════════════════════════════════════ */
+function countsByRange(pool) {
+  const c = {'0':0,'25':0,'50':0,'75':0};
+  pool.forEach(a => c[getRange(a.progreso)]++);
+  return c;
+}
+
+function updateRangePills(pool) {
+  const c = countsByRange(pool);
+  ['0','25','50','75'].forEach(r => {
+    const el = document.getElementById('cnt-' + r);
+    if (el) el.textContent = '(' + c[r] + ')';
+  });
+}
+
+/* ════════════════════════════════════════════════════════
+   GRÁFICO BARRAS HORIZONTAL
+═══════════════════════════════════════════════════════════ */
+let chartBarras = null;
+
+function buildBarChart(pool) {
+  const active = activeRanges();
+  const pairs  = pool.filter(a => active.includes(getRange(a.progreso)))
+                     .sort((a,b) => b.progreso - a.progreso);
+
+  const canvas  = document.getElementById('chartBarras');
+  const noData  = document.getElementById('no-chart-data');
+  const visible = pairs.length;
+
+  // Summary strip
+  const sum = pairs.reduce((s,a) => s + a.progreso, 0);
+  const avg = visible ? Math.round(sum / visible) : 0;
+  document.getElementById('rangeSummary').innerHTML =
+    `<span>Mostrando <strong>${visible}</strong> alumno${visible !== 1 ? 's' : ''}</span>` +
+    `<span>· Promedio visible: <strong>${avg}%</strong></span>`;
+  document.getElementById('lbl-visible-count').textContent = visible + ' alumnos';
+
+  if (!visible) {
+    canvas.style.display = 'none';
+    noData.style.display = 'block';
+    if (chartBarras) { chartBarras.destroy(); chartBarras = null; }
+    return;
+  }
+  canvas.style.display = 'block';
+  noData.style.display = 'none';
+
+  const barH = 28, padding = 80;
+  canvas.style.height = Math.max(200, visible * barH + padding) + 'px';
+  canvas.style.maxHeight = '';
+
+  if (chartBarras) chartBarras.destroy();
+  chartBarras = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: pairs.map(p => p.nombre),
+      datasets: [{
+        label: 'Progreso (%)',
+        data:  pairs.map(p => p.progreso),
+        backgroundColor: pairs.map(p => RCOL[getRange(p.progreso)].bar),
+        borderColor:     pairs.map(p => RCOL[getRange(p.progreso)].bd),
+        borderWidth: 1.5,
+        borderRadius: 5,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { ...TT, callbacks: {
+          label: ctx => ` ${ctx.parsed.x}%  · ${RLBL[getRange(ctx.parsed.x)]}`
+        }}
+      },
+      scales: {
+        x: { beginAtZero:true, max:100,
+             ticks:{ color:textColor, callback:v => v+'%' }, grid:{ color:gridColor } },
+        y: { ticks:{ color:textColor, font:{size:11} }, grid:{ display:false } }
+      }
+    },
+    plugins: [
+      { id:'line75', afterDraw(chart) {
+          const { ctx, chartArea:{top,bottom}, scales:{x} } = chart;
+          const xp = x.getPixelForValue(75);
+          ctx.save();
+          ctx.beginPath(); ctx.moveTo(xp,top); ctx.lineTo(xp,bottom);
+          ctx.strokeStyle = 'rgba(63,185,80,.55)'; ctx.lineWidth=1.5;
+          ctx.setLineDash([5,4]); ctx.stroke();
+          ctx.font='11px var(--mono,monospace)'; ctx.fillStyle='#3fb950';
+          ctx.fillText('75%', xp+4, top+12);
+          ctx.restore();
+      }},
+      { id:'valLabels', afterDatasetsDraw(chart) {
+          const { ctx, data, scales:{x,y} } = chart;
+          data.datasets[0].data.forEach((val,i) => {
+            const xp = x.getPixelForValue(val);
+            const yp = y.getPixelForValue(i);
+            ctx.save();
+            ctx.font='bold 11px var(--mono,monospace)';
+            ctx.fillStyle = isLight ? '#24292f' : '#e6edf3';
+            ctx.textBaseline='middle';
+            ctx.fillText(val+'%', xp+6, yp);
+            ctx.restore();
+          });
+      }}
+    ]
+  });
+}
+
+/* ════════════════════════════════════════════════════════
+   GRÁFICO DONA
+═══════════════════════════════════════════════════════════ */
+let chartDona = null;
+
+function buildDona(pool) {
+  const sup   = pool.filter(a => a.supera_75 === 1).length;
+  const nosup = pool.length - sup;
+  const pct   = pool.length ? Math.round(sup / pool.length * 1000) / 10 : 0;
+
+  if (chartDona) {
+    chartDona.data.datasets[0].data = [sup, nosup];
+    chartDona.update();
+    return;
+  }
+  chartDona = new Chart(document.getElementById('chartDona'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Superan 75%','Bajo 75%'],
+      datasets: [{ data:[sup,nosup],
+        backgroundColor:['rgba(63,185,80,.8)','rgba(248,81,73,.6)'],
+        borderColor:['#3fb950','#f85149'], borderWidth:2, hoverOffset:8 }]
+    },
+    options: {
+      responsive:true, cutout:'68%',
+      plugins: {
+        legend:{ position:'bottom', labels:{ color:textColor, font:{size:12}, padding:14 }},
+        tooltip:{ ...TT }
+      }
+    },
+    plugins: [{ id:'center', afterDraw(chart) {
+      const { ctx, chartArea:{width,height,left,top} } = chart;
+      const cx=left+width/2, cy=top+height/2;
+      const p = chart.data.datasets[0].data;
+      const tot = p[0]+p[1];
+      const pc  = tot ? Math.round(p[0]/tot*1000)/10 : 0;
+      ctx.save();
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.font='bold 22px var(--mono,monospace)';
+      ctx.fillStyle = isLight?'#24292f':'#e6edf3';
+      ctx.fillText(pc+'%', cx, cy-8);
+      ctx.font='11px sans-serif'; ctx.fillStyle=textColor;
+      ctx.fillText('éxito', cx, cy+12);
+      ctx.restore();
+    }}]
+  });
+}
+
+/* ════════════════════════════════════════════════════════
+   GRÁFICO RANGOS
+═══════════════════════════════════════════════════════════ */
+let chartRangos = null;
+
+function buildRangos(pool) {
+  const c = countsByRange(pool);
+  const data = [c['0'],c['25'],c['50'],c['75']];
+
+  if (chartRangos) {
+    chartRangos.data.datasets[0].data = data;
+    chartRangos.update();
+    return;
+  }
+  chartRangos = new Chart(document.getElementById('chartRangos'), {
+    type: 'bar',
+    data: {
+      labels: ['0 – 24%','25 – 49%','50 – 74%','≥ 75%'],
+      datasets: [{ label:'Nº alumnos', data,
+        backgroundColor:['rgba(248,81,73,.75)','rgba(210,153,34,.75)','rgba(88,166,255,.75)','rgba(63,185,80,.75)'],
+        borderColor:['#f85149','#d29922','#58a6ff','#3fb950'],
+        borderWidth:1.5, borderRadius:7, borderSkipped:false }]
+    },
+    options: {
+      responsive:true,
+      plugins: {
+        legend:{ display:false },
+        tooltip:{ ...TT, callbacks:{ label: ctx => ` ${ctx.parsed.y} alumno${ctx.parsed.y!==1?'s':''}` }}
+      },
+      scales: {
+        y:{ beginAtZero:true, ticks:{ color:textColor, stepSize:1, precision:0 }, grid:{color:gridColor} },
+        x:{ ticks:{ color:textColor }, grid:{ display:false } }
+      }
+    },
+    plugins:[{ id:'rl', afterDatasetsDraw(chart) {
+      const { ctx, data, scales:{x,y} } = chart;
+      data.datasets[0].data.forEach((val,i) => {
+        if (!val) return;
+        ctx.save();
+        ctx.font='bold 12px var(--mono,monospace)';
+        ctx.fillStyle=isLight?'#24292f':'#e6edf3';
+        ctx.textAlign='center'; ctx.textBaseline='bottom';
+        ctx.fillText(val, x.getPixelForValue(i), y.getPixelForValue(val)-4);
+        ctx.restore();
+      });
+    }}]
+  });
+}
+
+/* ════════════════════════════════════════════════════════
+   TABLA
+═══════════════════════════════════════════════════════════ */
+function filterTable() {
+  const active = activeRanges();
+  const q      = (document.getElementById('buscador')?.value || '').toLowerCase().trim();
+  const rows   = document.querySelectorAll('#tabla-historial tbody tr[data-curso]');
+  let visible  = 0;
+
+  rows.forEach(row => {
+    const cursoOk  = activeCurso === '__ALL__' || row.dataset.curso === activeCurso;
+    const rangeOk  = active.includes(row.dataset.rango);
+    const searchOk = !q || row.dataset.search.toLowerCase().includes(q);
+    const show     = cursoOk && rangeOk && searchOk;
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+
+  const noR = document.getElementById('no-results');
+  if (noR) noR.style.display = visible === 0 ? 'block' : 'none';
+  const lbl = document.getElementById('lbl-table-count');
+  if (lbl) lbl.textContent = visible + ' registros';
+}
+
+/* ════════════════════════════════════════════════════════
+   UPDATE ALL  (punto central de actualización)
+═══════════════════════════════════════════════════════════ */
+function updateAll() {
+  const pool = alumnosCurso();
+  updateKPIs(pool);
+  updateRangePills(pool);
+  buildBarChart(pool);
+  buildDona(pool);
+  buildRangos(pool);
+  filterTable();
+}
+
+// Listeners checkboxes de rango
+document.querySelectorAll('.rng-chk').forEach(c => c.addEventListener('change', updateAll));
+// Buscador
+document.getElementById('buscador')?.addEventListener('input', filterTable);
+
+// Render inicial
+updateAll();
+
+/* ════════════════════════════════════════════════════════
+   GRÁFICO HISTÓRICO  (no cambia con el filtro de curso)
+═══════════════════════════════════════════════════════════ */
+const snapLabels = {{ snap_labels | tojson }};
+const snapPct    = {{ snap_pct   | tojson }};
+const snapAvg    = {{ snap_avg   | tojson }};
+const snapTotal  = {{ snap_total | tojson }};
+
+let chartHistorial = null;
+
+function buildHistorialChart() {
+  const ctx = document.getElementById('chartHistorial');
+  if (!ctx || !snapLabels.length) return;
+
+  const showExito = document.getElementById('chk-exito').checked;
+  const showAvg   = document.getElementById('chk-avg').checked;
+  const showTotal = document.getElementById('chk-total').checked;
+
+  const datasets = [];
+  if (showExito) datasets.push({
+    label:'Tasa de éxito (%)', data:snapPct,
+    borderColor:'#3fb950', backgroundColor:'rgba(63,185,80,.10)',
+    borderWidth:2.5, pointRadius:6, pointHoverRadius:8, pointBackgroundColor:'#3fb950',
+    tension:.35, fill:true, yAxisID:'y'
+  });
+  if (showAvg) datasets.push({
+    label:'Progreso promedio (%)', data:snapAvg,
+    borderColor:'#58a6ff', backgroundColor:'rgba(88,166,255,.08)',
+    borderWidth:2.5, pointRadius:6, pointHoverRadius:8, pointBackgroundColor:'#58a6ff',
+    tension:.35, fill:true, yAxisID:'y'
+  });
+  if (showTotal && snapTotal.length) datasets.push({
+    label:'Total alumnos', data:snapTotal,
+    borderColor:'#d29922', backgroundColor:'rgba(210,153,34,.08)',
+    borderWidth:2, pointRadius:5, pointHoverRadius:7, pointBackgroundColor:'#d29922',
+    borderDash:[5,4], tension:.35, fill:false, yAxisID:'y2'
+  });
+
+  if (chartHistorial) chartHistorial.destroy();
+  chartHistorial = new Chart(ctx, {
+    type:'line',
+    data:{ labels:snapLabels, datasets },
+    options:{
+      responsive:true,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ display:true, position:'top',
+          labels:{ color:textColor, font:{size:12}, padding:16, boxWidth:14 }},
+        tooltip:{ ...TT, callbacks:{
+          label: ctx => {
+            const suf = ctx.dataset.yAxisID==='y2' ? ' alumnos' : '%';
+            return ` ${ctx.dataset.label}: ${ctx.parsed.y}${suf}`;
+          }
+        }}
+      },
+      scales:{
+        y:{ beginAtZero:true, max:100,
+            ticks:{ color:textColor, callback:v=>v+'%' }, grid:{ color:gridColor },
+            display: showExito||showAvg },
+        y2:{ beginAtZero:true, position:'right',
+             ticks:{ color:'#d29922', stepSize:1, precision:0 }, grid:{ display:false },
+             display: showTotal&&!!snapTotal.length },
+        x:{ ticks:{ color:textColor }, grid:{ display:false } }
+      }
+    }
+  });
+}
+
+buildHistorialChart();
+['chk-exito','chk-avg','chk-total'].forEach(id =>
+  document.getElementById(id)?.addEventListener('change', buildHistorialChart)
+);
+</script>
+{% endblock %}

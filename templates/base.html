@@ -518,6 +518,14 @@
 
         {% if session.get('es_admin') == 1 %}
         <li class="nav-item">
+          <a class="nav-link{{ ' active' if path.startswith('/formacion') else '' }}" href="/formacion">
+            🎓 Formación
+          </a>
+        </li>
+        {% endif %}
+
+        {% if session.get('es_admin') == 1 %}
+        <li class="nav-item">
           <a class="nav-link{{ ' active' if path == '/admin' else '' }}" href="/admin">
             ⚙ Admin
           </a>

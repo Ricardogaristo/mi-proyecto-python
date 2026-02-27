@@ -7,9 +7,15 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
+# Módulo de Formación
+from formacion import formacion_bp, inicializar_formacion
+
 app = Flask(__name__)
 app.secret_key = "clave_secreta_muy_segura"
 DB_NAME = "tareas.db"
+
+# Registrar Blueprint de Formación
+app.register_blueprint(formacion_bp)
 
 # --- BASE DE DATOS ---
 
@@ -821,4 +827,5 @@ def logout():
 # --- ARRANCAR ---
 if __name__ == "__main__":
     inicializar_todo()
-    app.run(debug=True, port=5000)   
+    inicializar_formacion()
+    app.run(debug=True, port=5000)
