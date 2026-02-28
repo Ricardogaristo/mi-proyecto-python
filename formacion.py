@@ -759,7 +759,15 @@ def borrar_snapshot(snap_id):
     return redirect(url_for("formacion.formacion_dashboard"))
 
 
-# ── Ruta: sistema de alarmas ───────────────────────────────────────────────────
+# ── Ruta: borrar todo el historial automático ─────────────────────────────────
+@formacion_bp.route("/formacion/borrar_historial_auto", methods=["POST"])
+@login_required
+def borrar_historial_auto():
+    conn = get_form_conn()
+    conn.execute("DELETE FROM historial_automatico WHERE tutor_id=?", (session["user_id"],))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("formacion.formacion_dashboard"))
 @formacion_bp.route("/formacion/alarmas")
 @login_required
 def formacion_alarmas():

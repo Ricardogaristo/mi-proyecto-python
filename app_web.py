@@ -66,6 +66,26 @@ def inicializar_todo():
         cursor.execute("ALTER TABLE tareas ADD COLUMN usuario_id INTEGER")
     except sqlite3.OperationalError: pass
 
+    # Columnas nuevas: prioridad, favorita, notas
+    for col_sql in [
+        "ALTER TABLE tareas ADD COLUMN prioridad INTEGER DEFAULT 2",   # 1=alta 2=media 3=baja
+        "ALTER TABLE tareas ADD COLUMN favorita  INTEGER DEFAULT 0",
+        "ALTER TABLE tareas ADD COLUMN notas     TEXT",
+    ]:
+        try:    cursor.execute(col_sql)
+        except sqlite3.OperationalError: pass
+
+    # Tabla subtareas
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS subtareas (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            tarea_id  INTEGER NOT NULL,
+            texto     TEXT    NOT NULL,
+            hecha     INTEGER DEFAULT 0,
+            FOREIGN KEY (tarea_id) REFERENCES tareas(id) ON DELETE CASCADE
+        )
+    """)
+
     # 4. CREAR ADMIN CON EMAIL (Si no existe)
     cursor.execute("SELECT * FROM usuarios WHERE username='admin' OR email='admin@correo.com'")
     if not cursor.fetchone():
@@ -103,6 +123,16 @@ def login_required(f):
     def decorated_function(*args, **kwargs):
         if "user_id" not in session:
             return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        if session.get("es_admin") != 1:
+            return redirect("/")
         return f(*args, **kwargs)
     return decorated_function
 
@@ -168,39 +198,104 @@ def registro():
 @app.route("/")
 @login_required
 def index():
-    user_id = session.get("user_id")
+    user_id  = session.get("user_id")
     es_admin = session.get("es_admin")
-    
-    # Manejo de paginación
-    page = request.args.get('page', 1, type=int)
-    per_page = 10
-    offset = (page - 1) * per_page
 
-    conn = get_connection()
+    # ── Filtros GET ───────────────────────────────────────────────────────
+    filtro_estado = request.args.get("estado", "all").strip()
+    filtro_cat    = request.args.get("cat",    "").strip()
+    filtro_q      = request.args.get("q",      "").strip()
+    filtro_prio   = request.args.get("prio",   "").strip()
+    filtro_fav    = request.args.get("fav",    "").strip()
+    page     = max(request.args.get("page", 1, type=int), 1)
+    per_page = 10
+
+    # ── WHERE dinámico ────────────────────────────────────────────────────
+    filtros = []
+    params  = []
+
+    if es_admin != 1:
+        filtros.append("usuario_id = ?")
+        params.append(user_id)
+
+    if filtro_estado == "pending":
+        filtros.append("completada = 0")
+    elif filtro_estado == "done":
+        filtros.append("completada = 1")
+
+    if filtro_cat:
+        filtros.append("LOWER(TRIM(COALESCE(categoria,''))) = LOWER(TRIM(?))")
+        params.append(filtro_cat)
+
+    if filtro_prio in ("1","2","3"):
+        filtros.append("prioridad = ?")
+        params.append(int(filtro_prio))
+
+    if filtro_fav == "1":
+        filtros.append("favorita = 1")
+
+    if filtro_q:
+        filtros.append("(LOWER(descripcion) LIKE ? OR LOWER(COALESCE(codigo,'')" +
+                       ") LIKE ? OR LOWER(COALESCE(categoria,'')" + ") LIKE ?)")
+        like = f"%{filtro_q.lower()}%"
+        params.extend([like, like, like])
+
+    where_clause = ("WHERE " + " AND ".join(filtros)) if filtros else ""
+
+    conn   = get_connection()
     cursor = conn.cursor()
 
+    cursor.execute(f"SELECT COUNT(*) FROM tareas {where_clause}", params)
+    total_tareas = cursor.fetchone()[0]
+
+    total_pages = max((total_tareas + per_page - 1) // per_page, 1)
+    if page > total_pages:
+        page = total_pages
+    offset = (page - 1) * per_page
+
+    cursor.execute(
+        f"SELECT * FROM tareas {where_clause} ORDER BY favorita DESC, prioridad ASC, id DESC LIMIT ? OFFSET ?",
+        params + [per_page, offset]
+    )
+    tareas = cursor.fetchall()
+
+    # Subtareas de las tareas de esta página
+    ids = [t["id"] for t in tareas]
+    subtareas_map = {}
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        cursor.execute(f"SELECT * FROM subtareas WHERE tarea_id IN ({placeholders}) ORDER BY id", ids)
+        for s in cursor.fetchall():
+            subtareas_map.setdefault(s["tarea_id"], []).append(dict(s))
+
+    # Categorías para el selector
     if es_admin == 1:
-        # VISTA ADMIN: Ve todas las tareas
-        cursor.execute("SELECT * FROM tareas ORDER BY id DESC LIMIT ? OFFSET ?", (per_page, offset))
-        tareas = cursor.fetchall()
-        cursor.execute("SELECT COUNT(*) FROM tareas")
-        total_tareas = cursor.fetchone()[0]
+        cursor.execute("""
+            SELECT DISTINCT COALESCE(NULLIF(TRIM(categoria),''), 'General') AS cat
+            FROM tareas ORDER BY cat
+        """)
     else:
-        # VISTA USUARIO: Ve solo las suyas
-        cursor.execute("SELECT * FROM tareas WHERE usuario_id = ? ORDER BY id DESC LIMIT ? OFFSET ?", (user_id, per_page, offset))
-        tareas = cursor.fetchall()
-        cursor.execute("SELECT COUNT(*) FROM tareas WHERE usuario_id = ?", (user_id,))
-        total_tareas = cursor.fetchone()[0]
-    
+        cursor.execute("""
+            SELECT DISTINCT COALESCE(NULLIF(TRIM(categoria),''), 'General') AS cat
+            FROM tareas WHERE usuario_id = ? ORDER BY cat
+        """, (user_id,))
+    categorias_lista = [row[0] for row in cursor.fetchall()]
+
     conn.close()
 
-    # Cálculo para evitar el error de Jinja2
-    total_pages = (total_tareas + per_page - 1) // per_page if total_tareas > 0 else 1
-
-    return render_template("index.html", 
-                           tareas=tareas, 
-                           page=page, 
-                           total_pages=total_pages)
+    return render_template(
+        "index.html",
+        tareas=tareas,
+        page=page,
+        total_pages=total_pages,
+        filtro_estado=filtro_estado,
+        filtro_cat=filtro_cat,
+        filtro_q=filtro_q,
+        filtro_prio=filtro_prio,
+        filtro_fav=filtro_fav,
+        categorias_lista=categorias_lista,
+        subtareas_map=subtareas_map,
+    )
 
 @app.route("/agregar", methods=["POST"])
 @login_required
@@ -214,10 +309,11 @@ def agregar():
     conn = get_connection()
     cursor = conn.cursor()
 
+    prioridad = int(request.form.get("prioridad", 2))
     cursor.execute("""
-        INSERT INTO tareas (codigo, descripcion, categoria, fecha, completada, usuario_id)
-        VALUES (?, ?, ?, ?, 0, ?)
-    """, (codigo, descripcion, categoria, fecha, session["user_id"]))
+        INSERT INTO tareas (codigo, descripcion, categoria, fecha, completada, usuario_id, prioridad, favorita, notas)
+        VALUES (?, ?, ?, ?, 0, ?, ?, 0, ?)
+    """, (codigo, descripcion, categoria, fecha, session["user_id"], prioridad, request.form.get("notas","")))
 
     conn.commit()
     conn.close()
@@ -335,6 +431,89 @@ def admin():
 
 
 
+
+
+
+# ══════════════════════════════════════════════════════
+# GESTIÓN DE USUARIOS (solo admin)
+# ══════════════════════════════════════════════════════
+
+@app.route("/usuarios")
+@admin_required
+def usuarios():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Todos los usuarios con conteo de tareas
+    cursor.execute("""
+        SELECT u.id, u.username, u.email, u.es_admin,
+               COUNT(t.id)                                          AS total_tareas,
+               SUM(CASE WHEN t.completada=1 THEN 1 ELSE 0 END)     AS completadas,
+               SUM(CASE WHEN t.completada=0 THEN 1 ELSE 0 END)     AS pendientes
+        FROM usuarios u
+        LEFT JOIN tareas t ON t.usuario_id = u.id
+        GROUP BY u.id
+        ORDER BY u.es_admin DESC, u.username
+    """)
+    usuarios_lista = [dict(r) for r in cursor.fetchall()]
+
+    # Categorías disponibles para el formulario de asignar tarea
+    cursor.execute("""
+        SELECT DISTINCT COALESCE(NULLIF(TRIM(categoria),''),'General') AS cat
+        FROM tareas ORDER BY cat
+    """)
+    categorias = [r[0] for r in cursor.fetchall()]
+
+    conn.close()
+    return render_template("usuarios.html",
+                           usuarios=usuarios_lista,
+                           categorias=categorias)
+
+
+@app.route("/usuarios/eliminar/<int:uid>", methods=["POST"])
+@admin_required
+def usuario_eliminar(uid):
+    if uid == session["user_id"]:
+        return redirect("/usuarios")   # no puede eliminarse a sí mismo
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("DELETE FROM tareas   WHERE usuario_id = ?", (uid,))
+    cursor.execute("DELETE FROM usuarios WHERE id = ?",         (uid,))
+    conn.commit(); conn.close()
+    return redirect("/usuarios")
+
+
+@app.route("/usuarios/asignar_tarea/<int:uid>", methods=["POST"])
+@admin_required
+def usuario_asignar_tarea(uid):
+    descripcion = request.form.get("descripcion", "").strip()
+    if not descripcion:
+        return redirect("/usuarios")
+    codigo    = request.form.get("codigo",    "").strip()
+    categoria = request.form.get("categoria", "").strip()
+    fecha     = request.form.get("fecha",     "").strip()
+    prioridad = int(request.form.get("prioridad", 2))
+    notas     = request.form.get("notas",     "").strip()
+
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO tareas (codigo, descripcion, categoria, fecha,
+                            completada, usuario_id, prioridad, favorita, notas)
+        VALUES (?,?,?,?,0,?,?,0,?)
+    """, (codigo or None, descripcion, categoria or None,
+          fecha or None, uid, prioridad, notas or None))
+    conn.commit(); conn.close()
+    return redirect("/usuarios")
+
+
+@app.route("/usuarios/toggle_admin/<int:uid>", methods=["POST"])
+@admin_required
+def usuario_toggle_admin(uid):
+    if uid == session["user_id"]:
+        return redirect("/usuarios")
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET es_admin = 1 - es_admin WHERE id=?", (uid,))
+    conn.commit(); conn.close()
+    return redirect("/usuarios")
 
 @app.route("/completar/<int:id>")
 @login_required
@@ -783,6 +962,74 @@ def exportar():
 
 
 
+
+
+# ── Favorita toggle ──────────────────────────────────────────────────────
+@app.route("/favorita/<int:id>")
+@login_required
+def favorita(id):
+    conn = get_connection(); cursor = conn.cursor()
+    if session.get("es_admin") == 1:
+        cursor.execute("UPDATE tareas SET favorita = 1 - favorita WHERE id=?", (id,))
+    else:
+        cursor.execute("UPDATE tareas SET favorita = 1 - favorita WHERE id=? AND usuario_id=?",
+                       (id, session["user_id"]))
+    conn.commit(); conn.close()
+    return redirect(request.referrer or "/")
+
+
+# ── Duplicar tarea ───────────────────────────────────────────────────────
+@app.route("/duplicar/<int:id>")
+@login_required
+def duplicar(id):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("SELECT * FROM tareas WHERE id=?", (id,))
+    t = cursor.fetchone()
+    if t:
+        cursor.execute("""
+            INSERT INTO tareas (descripcion, categoria, fecha, completada,
+                                codigo, usuario_id, prioridad, favorita, notas)
+            VALUES (?,?,?,0,?,?,?,0,?)
+        """, (
+            t["descripcion"] + " (copia)", t["categoria"], t["fecha"],
+            t["codigo"], t["usuario_id"], t["prioridad"] or 2, t["notas"] or ""
+        ))
+        conn.commit()
+    conn.close()
+    return redirect(request.referrer or "/")
+
+
+# ── Subtareas: agregar ───────────────────────────────────────────────────
+@app.route("/subtarea/agregar/<int:tarea_id>", methods=["POST"])
+@login_required
+def subtarea_agregar(tarea_id):
+    texto = request.form.get("texto", "").strip()
+    if texto:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("INSERT INTO subtareas (tarea_id, texto) VALUES (?,?)", (tarea_id, texto))
+        conn.commit(); conn.close()
+    return redirect(request.referrer or "/")
+
+
+# ── Subtareas: toggle hecha ──────────────────────────────────────────────
+@app.route("/subtarea/toggle/<int:sub_id>")
+@login_required
+def subtarea_toggle(sub_id):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("UPDATE subtareas SET hecha = 1 - hecha WHERE id=?", (sub_id,))
+    conn.commit(); conn.close()
+    return redirect(request.referrer or "/")
+
+
+# ── Subtareas: eliminar ──────────────────────────────────────────────────
+@app.route("/subtarea/eliminar/<int:sub_id>")
+@login_required
+def subtarea_eliminar(sub_id):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("DELETE FROM subtareas WHERE id=?", (sub_id,))
+    conn.commit(); conn.close()
+    return redirect(request.referrer or "/")
+
 # -----------------------------
 # EDITAR
 # -----------------------------
@@ -795,17 +1042,20 @@ def editar(id):
     cursor = conn.cursor()
 
     if request.method == "POST":
-        codigo = request.form.get("codigo")
+        codigo      = request.form.get("codigo")
         descripcion = request.form.get("descripcion")
-        categoria = request.form.get("categoria")
-        fecha = request.form.get("fecha")
-        completada = request.form.get("completada")  # 👈 NUEVO
+        categoria   = request.form.get("categoria")
+        fecha       = request.form.get("fecha")
+        completada  = request.form.get("completada")
+        prioridad   = int(request.form.get("prioridad", 2))
+        notas       = request.form.get("notas", "")
 
         cursor.execute("""
             UPDATE tareas
-            SET codigo=?, descripcion=?, categoria=?, fecha=?, completada=?
+            SET codigo=?, descripcion=?, categoria=?, fecha=?, completada=?,
+                prioridad=?, notas=?
             WHERE id=?
-        """, (codigo, descripcion, categoria, fecha, completada, id))
+        """, (codigo, descripcion, categoria, fecha, completada, prioridad, notas, id))
 
         conn.commit()
         conn.close()

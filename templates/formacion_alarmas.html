@@ -3,58 +3,6 @@
 
 {% block content %}
 
-<style>
-  .alarma-card {
-    border: 1.5px solid var(--border);
-    border-radius: 12px;
-    background: var(--bg2);
-    margin-bottom: .75rem;
-    transition: box-shadow .15s, opacity .2s;
-    overflow: hidden;
-  }
-  .alarma-card.completada { opacity: .42; }
-  .alarma-card:hover      { box-shadow: 0 2px 16px rgba(0,0,0,.15); }
-
-  .alarma-stripe          { width: 5px; flex-shrink: 0; }
-  .stripe-1               { background: var(--red); }
-  .stripe-2               { background: var(--amber); }
-  .stripe-3               { background: var(--blue); }
-
-  .alarma-inner           { display: flex; align-items: stretch; }
-  .alarma-body            { flex: 1; padding: .8rem 1rem; }
-  .alarma-titulo          { font-weight: 700; font-size: .9rem; margin-bottom: .2rem; }
-  .alarma-desc            { font-size: .79rem; color: var(--text-muted); margin-bottom: .35rem; }
-  .alarma-accion          { font-size: .77rem; color: var(--accent); font-style: italic; }
-  .alarma-card.completada .alarma-titulo,
-  .alarma-card.completada .alarma-desc,
-  .alarma-card.completada .alarma-accion { text-decoration: line-through; color: var(--text-muted); }
-
-  .alarma-meta            { display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.5rem; align-items:center; }
-  .alarma-actions         { display:flex; flex-direction:column; justify-content:center;
-                            align-items:flex-end; gap:.35rem; padding:.8rem .85rem; flex-shrink:0; min-width:116px; }
-
-  .seccion-hdr            { display:flex; align-items:center; gap:.55rem;
-                            margin: 1.3rem 0 .6rem; padding-bottom:.4rem;
-                            border-bottom: 1.5px solid var(--border); }
-  .seccion-hdr h5         { margin:0; font-weight:700; font-size:.93rem; }
-
-  .filter-tabs            { display:flex; gap:.4rem; flex-wrap:wrap; margin-bottom:1rem; }
-  .ftab                   { padding:.3rem .78rem; border-radius:99px; border:1.5px solid var(--border);
-                            background:var(--bg3); color:var(--text-muted); font-size:.78rem;
-                            font-weight:600; cursor:pointer; transition:all .15s; user-select:none; }
-  .ftab.active            { background:var(--accent); border-color:var(--accent); color:#fff; }
-  .ftab .tb               { background:rgba(0,0,0,.15); padding:.08rem .38rem;
-                            border-radius:99px; font-size:.7rem; margin-left:.2rem; }
-
-  .ring-svg               { width:46px; height:46px; }
-  .ring-bg                { fill:none; stroke:var(--bg3); stroke-width:5; }
-  .ring-fg                { fill:none; stroke-width:5; stroke-linecap:round;
-                            transform:rotate(-90deg); transform-origin:23px 23px; }
-
-  .sticky-top-bar         { position:sticky; top:0; z-index:10; background:var(--bg);
-                            padding:.4rem 0 .5rem; border-bottom:1px solid var(--border);
-                            margin-bottom:.5rem; }
-</style>
 
 {# ── Agrupar alarmas por prioridad #}
 {% set criticas     = alarmas | selectattr('prioridad', 'equalto', 1) | list %}
