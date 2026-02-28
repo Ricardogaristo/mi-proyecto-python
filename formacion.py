@@ -353,6 +353,28 @@ def formacion_dashboard():
     )
 
 
+# ── Ruta: descargar modelo de importación ─────────────────────────────────────
+@formacion_bp.route("/formacion/descargar_modelo")
+@login_required
+def descargar_modelo():
+    import os
+    from flask import send_file, current_app
+    # Buscar el modelo en varias ubicaciones posibles
+    posibles = [
+        os.path.join(current_app.root_path, "static", "MODELO_IMPORTAR.xlsx"),
+        os.path.join(current_app.root_path, "MODELO_IMPORTAR.xlsx"),
+        os.path.join(os.path.dirname(__file__), "MODELO_IMPORTAR.xlsx"),
+        os.path.join(os.path.dirname(__file__), "static", "MODELO_IMPORTAR.xlsx"),
+    ]
+    for ruta in posibles:
+        if os.path.exists(ruta):
+            return send_file(ruta, as_attachment=True, download_name="MODELO_IMPORTAR.xlsx")
+    # Si no se encuentra el archivo físico, devolver 404 con mensaje claro
+    from flask import abort
+    abort(404, "El archivo MODELO_IMPORTAR.xlsx no se encontró en el servidor. "
+               "Colócalo en la carpeta 'static/' junto a la aplicación.")
+
+
 # ── Ruta: API WhatsApp link ────────────────────────────────────────────────────
 @formacion_bp.route("/formacion/whatsapp/<int:alumno_id>")
 @login_required
