@@ -242,25 +242,135 @@
   </div>
 </div>
 
-<!-- ── Guardar snapshot ───────────────────────────────────────────────────── -->
+<!-- ── Módulo: Alumnos por N.º de cursos ──────────────────────────────────── -->
 <div class="gcard mb-4">
   <div class="gcard-header">
-    <span style="color:var(--amber)">📸</span>
-    <span class="gcard-title">Guardar estado actual como snapshot</span>
+    <span style="color:var(--blue)">⊞</span>
+    <span class="gcard-title">Alumnos por cantidad de cursos</span>
+    <span style="font-size:.72rem; color:var(--text-muted); margin-left:auto;" id="lbl-cursos-count">
+      cargando…
+    </span>
   </div>
   <div class="gcard-body">
-    <form method="POST" action="{{ url_for('formacion.guardar_snapshot') }}">
-      <div class="row g-2 align-items-end">
-        <div class="col-md-5">
-          <label class="form-label">Etiqueta del snapshot</label>
-          <input type="text" name="label" class="form-control"
-                 placeholder="Ej: Semana 1 · Marzo 2026" autocomplete="off">
-        </div>
-        <div class="col-md-3">
-          <button type="submit" class="btn btn-g-warning w-100">📸 Guardar snapshot</button>
-        </div>
+
+    <!-- Filtro por N.º de cursos -->
+    <div style="display:flex; flex-wrap:wrap; gap:.8rem; align-items:center; margin-bottom:1.1rem;">
+      <div style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap;">
+        <label style="font-size:.82rem; color:var(--text-muted); font-weight:600;">Filtrar por N.º de cursos:</label>
+        <div id="curso-count-pills" style="display:flex; gap:.4rem; flex-wrap:wrap;"></div>
       </div>
-    </form>
+      <div class="search-wrap ms-auto" style="min-width:200px; max-width:260px;">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="buscador-cursos" class="form-control" placeholder="Buscar alumno…">
+      </div>
+    </div>
+
+    <!-- Mini resumen KPIs -->
+    <div style="display:flex; flex-wrap:wrap; gap:.6rem; margin-bottom:1.1rem;" id="kpi-cursos-strip">
+      <div class="stat-card blue" style="flex:1; min-width:130px; padding:.7rem 1rem;">
+        <div class="stat-label" style="font-size:.7rem;">Alumnos con 1 curso</div>
+        <div class="stat-value" style="font-size:1.4rem;" id="kpi-nc-1">—</div>
+      </div>
+      <div class="stat-card amber" style="flex:1; min-width:130px; padding:.7rem 1rem;">
+        <div class="stat-label" style="font-size:.7rem;">Con 2 cursos</div>
+        <div class="stat-value" style="font-size:1.4rem;" id="kpi-nc-2">—</div>
+      </div>
+      <div class="stat-card green" style="flex:1; min-width:130px; padding:.7rem 1rem;">
+        <div class="stat-label" style="font-size:.7rem;">Con 3+ cursos</div>
+        <div class="stat-value" style="font-size:1.4rem;" id="kpi-nc-3">—</div>
+      </div>
+      <div class="stat-card red" style="flex:1; min-width:130px; padding:.7rem 1rem;">
+        <div class="stat-label" style="font-size:.7rem;">Promedio cursos</div>
+        <div class="stat-value" style="font-size:1.4rem;" id="kpi-nc-avg">—</div>
+      </div>
+    </div>
+
+    <!-- Tabla agrupada -->
+    <div class="table-responsive">
+      <table class="gtable" id="tabla-por-cursos">
+        <thead>
+          <tr>
+            <th>Alumno</th>
+            <th style="text-align:center;">N.º cursos</th>
+            <th>Cursos</th>
+            <th style="text-align:center;">Progreso prom.</th>
+            <th style="text-align:center;">Superan 75%</th>
+            <th style="text-align:center;">Exámenes</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-por-cursos">
+          <tr><td colspan="6" style="text-align:center; padding:2rem; color:var(--text-muted);">Cargando…</td></tr>
+        </tbody>
+      </table>
+      <div id="no-results-cursos" style="display:none; text-align:center; padding:2rem; color:var(--text-muted);">
+        <div style="font-size:1.6rem; margin-bottom:.4rem;">🔍</div>
+        Ningún alumno coincide con el filtro.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Historial automático ────────────────────────────────────────────────── -->
+<div class="gcard mb-4">
+  <div class="gcard-header">
+    <span style="color:var(--blue)">📈</span>
+    <span class="gcard-title">Historial automático de cambios</span>
+    <span style="font-size:.72rem; color:var(--text-muted); margin-left:auto;">
+      Se registra automáticamente al importar o borrar alumnos
+    </span>
+  </div>
+  <div class="gcard-body">
+
+    {% if historial_auto %}
+    <!-- Gráfico evolución -->
+    <div class="snap-legend mb-2">
+      <label>
+        <input type="checkbox" id="chk-hist-alumnos" checked style="accent-color:#58a6ff;">
+        <span style="color:#58a6ff;">●</span> Total alumnos
+      </label>
+      <label>
+        <input type="checkbox" id="chk-hist-cursos" checked style="accent-color:#3fb950;">
+        <span style="color:#3fb950;">●</span> Total cursos
+      </label>
+    </div>
+    <canvas id="chartHistAuto" style="max-height:240px; margin-bottom:1.4rem;"></canvas>
+
+    <!-- Tabla -->
+    <div class="table-responsive">
+      <table class="gtable">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Evento</th>
+            <th style="text-align:center;">Total alumnos</th>
+            <th style="text-align:center;">Total cursos</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for h in historial_auto %}
+          <tr>
+            <td style="font-family:var(--mono); font-size:.78rem; white-space:nowrap;">{{ h['fecha'] }}</td>
+            <td>
+              <span class="badge-g
+                {% if 'Importación' in h['evento'] %}badge-done
+                {% elif 'Borrado' in h['evento'] %}badge-pending
+                {% else %}badge-cat{% endif %}">
+                {{ h['evento'] }}
+              </span>
+            </td>
+            <td style="font-family:var(--mono); text-align:center; font-weight:700;">{{ h['total_alumnos'] }}</td>
+            <td style="font-family:var(--mono); text-align:center; color:var(--accent); font-weight:700;">{{ h['total_cursos'] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div style="text-align:center; padding:2.5rem; color:var(--text-muted);">
+      <div style="font-size:2rem; margin-bottom:.5rem;">📊</div>
+      El historial se generará automáticamente cuando importes o elimines alumnos.
+    </div>
+    {% endif %}
   </div>
 </div>
 
@@ -813,9 +923,180 @@ function buildHistorialChart() {
   });
 }
 
-buildHistorialChart();
-['chk-exito','chk-avg','chk-total'].forEach(id =>
-  document.getElementById(id)?.addEventListener('change', buildHistorialChart)
+/* ════════════════════════════════════════════════════════
+   MÓDULO: ALUMNOS POR N.º DE CURSOS
+═══════════════════════════════════════════════════════════ */
+(function() {
+  // Agrupar ALL_ALUMNOS por nombre → contar cursos únicos
+  const grouped = {};
+  ALL_ALUMNOS.forEach(a => {
+    const key = a.nombre.trim().toLowerCase();
+    if (!grouped[key]) grouped[key] = { nombre: a.nombre, cursos: new Set(), registros: [] };
+    if (a.curso) grouped[key].cursos.add(a.curso);
+    grouped[key].registros.push(a);
+  });
+
+  const rows = Object.values(grouped).map(g => {
+    const recs      = g.registros;
+    const nCursos   = g.cursos.size || 1;
+    const avgProg   = Math.round(recs.reduce((s,r) => s+r.progreso,0) / recs.length * 10) / 10;
+    const superan   = recs.filter(r => r.supera_75 === 1).length;
+    const examenes  = recs.reduce((s,r) => s + (r.examenes||0), 0);
+    return { nombre: g.nombre, nCursos, cursos: [...g.cursos], avgProg, superan, examenes, total: recs.length };
+  }).sort((a,b) => b.nCursos - a.nCursos || a.nombre.localeCompare(b.nombre));
+
+  // KPIs strip
+  const nc1 = rows.filter(r => r.nCursos === 1).length;
+  const nc2 = rows.filter(r => r.nCursos === 2).length;
+  const nc3 = rows.filter(r => r.nCursos >= 3).length;
+  const avgNC = rows.length ? Math.round(rows.reduce((s,r) => s + r.nCursos, 0) / rows.length * 10) / 10 : 0;
+  document.getElementById('kpi-nc-1').textContent = nc1;
+  document.getElementById('kpi-nc-2').textContent = nc2;
+  document.getElementById('kpi-nc-3').textContent = nc3;
+  document.getElementById('kpi-nc-avg').textContent = avgNC;
+
+  // Pills para filtrar por N.º
+  const maxNC = rows.length ? Math.max(...rows.map(r => r.nCursos)) : 0;
+  const pillsEl = document.getElementById('curso-count-pills');
+  const allCounts = [...new Set(rows.map(r => r.nCursos))].sort((a,b) => a-b);
+
+  const activeCounts = new Set(allCounts); // todos activos por defecto
+
+  allCounts.forEach(n => {
+    const pill = document.createElement('button');
+    pill.className = 'course-tab active';
+    pill.dataset.n = n;
+    pill.innerHTML = `${n} curso${n !== 1 ? 's' : ''} <span class="ct-badge">${rows.filter(r=>r.nCursos===n).length}</span>`;
+    pill.addEventListener('click', () => {
+      if (activeCounts.has(n)) {
+        activeCounts.delete(n);
+        pill.classList.remove('active');
+      } else {
+        activeCounts.add(n);
+        pill.classList.add('active');
+      }
+      renderTabla();
+    });
+    pillsEl.appendChild(pill);
+  });
+
+  function renderTabla() {
+    const q = (document.getElementById('buscador-cursos')?.value || '').toLowerCase().trim();
+    const filtered = rows.filter(r =>
+      activeCounts.has(r.nCursos) &&
+      (!q || r.nombre.toLowerCase().includes(q) || r.cursos.join(' ').toLowerCase().includes(q))
+    );
+
+    document.getElementById('lbl-cursos-count').textContent = filtered.length + ' alumnos';
+    const tbody = document.getElementById('tbody-por-cursos');
+    const noR   = document.getElementById('no-results-cursos');
+
+    if (!filtered.length) {
+      tbody.innerHTML = '';
+      noR.style.display = 'block';
+      return;
+    }
+    noR.style.display = 'none';
+
+    const ncColor = n => n >= 3 ? 'var(--accent)' : n === 2 ? 'var(--amber)' : 'var(--text-muted)';
+
+    tbody.innerHTML = filtered.map(r => {
+      const cursoBadges = r.cursos.map(c =>
+        `<span class="badge-g badge-cat" style="margin:.1rem;">${c}</span>`
+      ).join('');
+      const progColor = r.avgProg >= 75 ? 'var(--accent)' : r.avgProg >= 50 ? 'var(--blue)' : r.avgProg >= 25 ? 'var(--amber)' : 'var(--red)';
+      return `
+        <tr>
+          <td style="font-weight:600;">${r.nombre}</td>
+          <td style="text-align:center;">
+            <span style="font-family:var(--mono); font-size:1rem; font-weight:800; color:${ncColor(r.nCursos)};">${r.nCursos}</span>
+          </td>
+          <td>${cursoBadges || '<span style="color:var(--text-muted)">—</span>'}</td>
+          <td style="text-align:center;">
+            <div style="display:flex; align-items:center; gap:.5rem; justify-content:center;">
+              <div style="width:55px; height:6px; background:var(--bg3); border-radius:99px; overflow:hidden;">
+                <div style="height:100%; width:${Math.min(r.avgProg,100)}%; background:${progColor}; border-radius:99px;"></div>
+              </div>
+              <span style="font-family:var(--mono); font-size:.78rem;">${r.avgProg}%</span>
+            </div>
+          </td>
+          <td style="text-align:center; font-family:var(--mono);">
+            <span class="badge-g ${r.superan === r.total ? 'badge-done' : r.superan > 0 ? 'badge-pending' : 'badge-cat'}">
+              ${r.superan}/${r.total}
+            </span>
+          </td>
+          <td style="text-align:center; font-family:var(--mono); font-size:.85rem;">${r.examenes}</td>
+        </tr>`;
+    }).join('');
+  }
+
+  document.getElementById('buscador-cursos')?.addEventListener('input', renderTabla);
+  renderTabla();
+})();
+
+/* ════════════════════════════════════════════════════════
+   GRÁFICO HISTORIAL AUTOMÁTICO
+═══════════════════════════════════════════════════════════ */
+const HIST_LABELS  = {{ hist_labels  | tojson }};
+const HIST_ALUMNOS = {{ hist_alumnos | tojson }};
+const HIST_CURSOS  = {{ hist_cursos  | tojson }};
+
+let chartHistAuto = null;
+
+function buildHistAuto() {
+  const ctx = document.getElementById('chartHistAuto');
+  if (!ctx || !HIST_LABELS.length) return;
+
+  const showAlumnos = document.getElementById('chk-hist-alumnos')?.checked;
+  const showCursos  = document.getElementById('chk-hist-cursos')?.checked;
+  const datasets = [];
+
+  if (showAlumnos) datasets.push({
+    label: 'Total alumnos', data: HIST_ALUMNOS,
+    borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,.10)',
+    borderWidth: 2.5, pointRadius: 5, pointHoverRadius: 7, pointBackgroundColor: '#58a6ff',
+    tension: .35, fill: true, yAxisID: 'y'
+  });
+  if (showCursos) datasets.push({
+    label: 'Total cursos', data: HIST_CURSOS,
+    borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,.08)',
+    borderWidth: 2.5, pointRadius: 5, pointHoverRadius: 7, pointBackgroundColor: '#3fb950',
+    tension: .35, fill: true, yAxisID: 'y2'
+  });
+
+  if (chartHistAuto) chartHistAuto.destroy();
+  chartHistAuto = new Chart(ctx, {
+    type: 'line',
+    data: { labels: HIST_LABELS, datasets },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top',
+          labels: { color: textColor, font: { size: 12 }, padding: 16, boxWidth: 14 }},
+        tooltip: { ...TT, callbacks: {
+          label: ctx => {
+            const suf = ctx.dataset.yAxisID === 'y2' ? ' cursos' : ' alumnos';
+            return ` ${ctx.dataset.label}: ${ctx.parsed.y}${suf}`;
+          }
+        }}
+      },
+      scales: {
+        y:  { beginAtZero: true, position: 'left',
+              ticks: { color: '#58a6ff', stepSize: 1, precision: 0 },
+              grid: { color: gridColor }, display: showAlumnos },
+        y2: { beginAtZero: true, position: 'right',
+              ticks: { color: '#3fb950', stepSize: 1, precision: 0 },
+              grid: { display: false }, display: showCursos },
+        x:  { ticks: { color: textColor, maxRotation: 45 }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+buildHistAuto();
+['chk-hist-alumnos','chk-hist-cursos'].forEach(id =>
+  document.getElementById(id)?.addEventListener('change', buildHistAuto)
 );
 </script>
 {% endblock %}

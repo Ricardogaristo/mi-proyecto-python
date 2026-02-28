@@ -67,13 +67,36 @@ def inicializar_formacion():
             created_at  TEXT DEFAULT (datetime('now'))
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS historial_automatico (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            tutor_id       INTEGER,
+            fecha          TEXT,
+            evento         TEXT,
+            total_alumnos  INTEGER,
+            total_cursos   INTEGER,
+            created_at     TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS alarmas_completadas (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            tutor_id    INTEGER NOT NULL,
+            clave       TEXT    NOT NULL,
+            fecha_dia   TEXT    NOT NULL,
+            created_at  TEXT    DEFAULT (datetime('now')),
+            UNIQUE(tutor_id, clave, fecha_dia)
+        )
+    """)
     # Migraciones seguras
     for col, ddl in [
-        ("curso",      "ALTER TABLE alumnos ADD COLUMN curso TEXT"),
-        ("telefono",   "ALTER TABLE alumnos ADD COLUMN telefono TEXT"),
-        ("supera_75",  "ALTER TABLE alumnos ADD COLUMN supera_75 INTEGER DEFAULT 0"),
-        ("tutor_id",   "ALTER TABLE alumnos ADD COLUMN tutor_id INTEGER"),
-        ("created_at", "ALTER TABLE alumnos ADD COLUMN created_at TEXT DEFAULT (datetime('now'))"),
+        ("curso",        "ALTER TABLE alumnos ADD COLUMN curso TEXT"),
+        ("telefono",     "ALTER TABLE alumnos ADD COLUMN telefono TEXT"),
+        ("supera_75",    "ALTER TABLE alumnos ADD COLUMN supera_75 INTEGER DEFAULT 0"),
+        ("tutor_id",     "ALTER TABLE alumnos ADD COLUMN tutor_id INTEGER"),
+        ("created_at",   "ALTER TABLE alumnos ADD COLUMN created_at TEXT DEFAULT (datetime('now'))"),
+        ("archivado",    "ALTER TABLE alumnos ADD COLUMN archivado INTEGER DEFAULT 0"),
+        ("archivado_at", "ALTER TABLE alumnos ADD COLUMN archivado_at TEXT"),
     ]:
         try:
             cursor.execute(ddl)
@@ -84,6 +107,20 @@ def inicializar_formacion():
     print("✅ formacion.db inicializada correctamente.")
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+def _registrar_evento_historico(tutor_id, evento, conn):
+    """Registra automáticamente un evento en el historial cada vez que cambia el estado."""
+    row = conn.execute(
+        "SELECT COUNT(*) as total, COUNT(DISTINCT curso) as cursos FROM alumnos WHERE tutor_id=?",
+        (tutor_id,)
+    ).fetchone()
+    total_alumnos = row["total"] if row else 0
+    total_cursos  = row["cursos"] if row else 0
+    fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
+    conn.execute("""
+        INSERT INTO historial_automatico (tutor_id, fecha, evento, total_alumnos, total_cursos)
+        VALUES (?, ?, ?, ?, ?)
+    """, (tutor_id, fecha, evento, total_alumnos, total_cursos))
+
 def _safe_float(val):
     """Convierte a float; devuelve 0.0 si no es posible."""
     try:
@@ -111,6 +148,306 @@ def _safe_date(val):
         except ValueError:
             continue
     return s if s else None
+
+
+# ── Motor de alarmas ──────────────────────────────────────────────────────────
+def _generar_alarmas(tutor_id):
+    """
+    Genera la lista completa de alarmas del día para el tutor.
+    Devuelve lista de dicts con: clave, tipo, prioridad, titulo, descripcion,
+    alumno_id, alumno_nombre, curso, telefono, dias_restantes, accion_wa.
+    """
+    from datetime import date as _date_cls
+    import urllib.parse
+
+    hoy = _date_cls.today()
+    conn = get_form_conn()
+    alumnos = [dict(a) for a in conn.execute(
+        "SELECT * FROM alumnos WHERE tutor_id=? AND (archivado IS NULL OR archivado=0) ORDER BY fecha_fin ASC, progreso ASC",
+        (tutor_id,)
+    ).fetchall()]
+    conn.close()
+
+    alarmas = []
+    cursos_foro_inicio = set()   # para no duplicar foros por curso
+    cursos_foro_cierre = set()
+
+    def _dias_restantes(fecha_fin_str):
+        if not fecha_fin_str:
+            return None
+        try:
+            return (_date_cls.fromisoformat(str(fecha_fin_str)[:10]) - hoy).days
+        except Exception:
+            return None
+
+    def _dias_desde_inicio(fecha_inicio_str):
+        if not fecha_inicio_str:
+            return None
+        try:
+            return (hoy - _date_cls.fromisoformat(str(fecha_inicio_str)[:10])).days
+        except Exception:
+            return None
+
+    def _wa_link(telefono, mensaje):
+        if not telefono:
+            return None
+        tel = str(telefono).strip().replace(" ", "").replace("-", "").replace("+", "")
+        return f"https://wa.me/{tel}?text={urllib.parse.quote(mensaje)}"
+
+    for a in alumnos:
+        alumno_id   = a["id"]
+        nombre      = a.get("nombre", "")
+        curso       = a.get("curso") or "Sin curso"
+        progreso    = float(a.get("progreso") or 0)
+        supera_75   = int(a.get("supera_75") or 0)
+        telefono    = a.get("telefono") or ""
+        fecha_fin   = a.get("fecha_fin")
+        fecha_inicio= a.get("fecha_inicio")
+        dias_r      = _dias_restantes(fecha_fin)
+        dias_i      = _dias_desde_inicio(fecha_inicio)
+
+        # ─── 1. CURSO VENCIDO Y NO APROBADO ──────────────────────────────────
+        if dias_r is not None and dias_r < 0 and not supera_75:
+            msg = (f"Hola {nombre} 👋, te contactamos porque tu curso *{curso}* ha finalizado "
+                   f"y tu progreso está en {progreso:.0f}%. ¿Podemos ayudarte a completarlo? ¡Estamos aquí para acompañarte!")
+            alarmas.append({
+                "clave"         : f"vencido:{alumno_id}",
+                "tipo"          : "vencido_bajo",
+                "prioridad"     : 1,
+                "emoji"         : "🔴",
+                "titulo"        : "Curso vencido sin aprobar",
+                "descripcion"   : f"El curso finalizó hace {abs(dias_r)} día{'s' if abs(dias_r)!=1 else ''} y el alumno tiene {progreso:.0f}% de progreso.",
+                "accion"        : "Contactar urgente por WhatsApp y evaluar prórroga.",
+                "alumno_id"     : alumno_id,
+                "alumno_nombre" : nombre,
+                "curso"         : curso,
+                "telefono"      : telefono,
+                "dias_restantes": dias_r,
+                "wa_link"       : _wa_link(telefono, msg),
+            })
+
+        # ─── 2. PROGRESO CRÍTICO CON POCO TIEMPO ────────────────────────────
+        if dias_r is not None and 0 <= dias_r <= 20 and progreso < 25 and not supera_75:
+            msg = (f"Hola {nombre} 👋, notamos que tu progreso en *{curso}* es de solo {progreso:.0f}% "
+                   f"y quedan {dias_r} días para finalizar. ¡Te acompañamos para que puedas alcanzar el objetivo! ¿Cuándo podemos hablar?")
+            alarmas.append({
+                "clave"         : f"critico:{alumno_id}",
+                "tipo"          : "progreso_critico",
+                "prioridad"     : 1,
+                "emoji"         : "🔴",
+                "titulo"        : "Alumno en riesgo crítico",
+                "descripcion"   : f"Progreso {progreso:.0f}% con solo {dias_r} días restantes. Riesgo alto de no aprobar.",
+                "accion"        : "Intervención inmediata. Llamar o enviar WA con plan de acción.",
+                "alumno_id"     : alumno_id,
+                "alumno_nombre" : nombre,
+                "curso"         : curso,
+                "telefono"      : telefono,
+                "dias_restantes": dias_r,
+                "wa_link"       : _wa_link(telefono, msg),
+            })
+
+        # ─── 3. FECHA FIN EN 7 DÍAS ──────────────────────────────────────────
+        elif dias_r is not None and 1 <= dias_r <= 7 and not supera_75:
+            msg = (f"Hola {nombre} 👋, te recordamos que tu curso *{curso}* finaliza en {dias_r} día{'s' if dias_r!=1 else ''}. "
+                   f"Tu progreso actual es {progreso:.0f}%. ¡Ánimo, todavía estás a tiempo! 💪")
+            alarmas.append({
+                "clave"         : f"fin7:{alumno_id}",
+                "tipo"          : "fin_7dias",
+                "prioridad"     : 1,
+                "emoji"         : "🔴",
+                "titulo"        : f"Cierre en {dias_r} día{'s' if dias_r!=1 else ''} — sin aprobar",
+                "descripcion"   : f"El curso termina el {fecha_fin}. Progreso: {progreso:.0f}%.",
+                "accion"        : f"Enviar WA de recordatorio urgente de cierre.",
+                "alumno_id"     : alumno_id,
+                "alumno_nombre" : nombre,
+                "curso"         : curso,
+                "telefono"      : telefono,
+                "dias_restantes": dias_r,
+                "wa_link"       : _wa_link(telefono, msg),
+            })
+
+        # ─── 4. FECHA FIN EN 8–14 DÍAS ───────────────────────────────────────
+        elif dias_r is not None and 8 <= dias_r <= 14 and not supera_75:
+            msg = (f"Hola {nombre} 👋, quedan {dias_r} días para que finalice tu curso *{curso}*. "
+                   f"Llevas un progreso de {progreso:.0f}%. ¡Te animamos a avanzar para alcanzar el objetivo! 🎓")
+            alarmas.append({
+                "clave"         : f"fin14:{alumno_id}",
+                "tipo"          : "fin_14dias",
+                "prioridad"     : 2,
+                "emoji"         : "🟡",
+                "titulo"        : f"Cierre en {dias_r} días — recordatorio",
+                "descripcion"   : f"Quedan 2 semanas. Progreso: {progreso:.0f}%. Buen momento para hacer seguimiento.",
+                "accion"        : "Enviar WA motivacional con recordatorio de fechas.",
+                "alumno_id"     : alumno_id,
+                "alumno_nombre" : nombre,
+                "curso"         : curso,
+                "telefono"      : telefono,
+                "dias_restantes": dias_r,
+                "wa_link"       : _wa_link(telefono, msg),
+            })
+
+        # ─── 5. FECHA FIN EN 15–30 DÍAS Y PROGRESO BAJO ─────────────────────
+        elif dias_r is not None and 15 <= dias_r <= 30 and progreso < 50 and not supera_75:
+            msg = (f"Hola {nombre} 👋, ¿cómo vas con tu curso *{curso}*? Tienes {dias_r} días para completarlo "
+                   f"y tu progreso es {progreso:.0f}%. Planifiquemos juntos para que llegues a la meta 🎯")
+            alarmas.append({
+                "clave"         : f"fin30:{alumno_id}",
+                "tipo"          : "fin_30dias",
+                "prioridad"     : 2,
+                "emoji"         : "🟡",
+                "titulo"        : f"Progreso bajo con cierre en {dias_r} días",
+                "descripcion"   : f"Progreso {progreso:.0f}% — menos del 50% con menos de 30 días disponibles.",
+                "accion"        : "Planificar seguimiento y enviar WA con agenda de trabajo.",
+                "alumno_id"     : alumno_id,
+                "alumno_nombre" : nombre,
+                "curso"         : curso,
+                "telefono"      : telefono,
+                "dias_restantes": dias_r,
+                "wa_link"       : _wa_link(telefono, msg),
+            })
+
+        # ─── 6. INICIO HOY ───────────────────────────────────────────────────
+        if dias_i is not None and dias_i == 0:
+            msg = (f"¡Bienvenido/a {nombre}! 🎉 Hoy comenzás tu curso *{curso}*. "
+                   f"Estamos muy contentos de acompañarte en este proceso de aprendizaje. "
+                   f"¡Cualquier consulta, aquí estamos! 😊")
+            alarmas.append({
+                "clave"         : f"inicio_hoy:{alumno_id}",
+                "tipo"          : "inicio_hoy",
+                "prioridad"     : 2,
+                "emoji"         : "🟢",
+                "titulo"        : "Inicio de curso HOY",
+                "descripcion"   : f"El alumno empieza hoy el curso {curso}.",
+                "accion"        : "Enviar WA de bienvenida y verificar acceso al aula virtual.",
+                "alumno_id"     : alumno_id,
+                "alumno_nombre" : nombre,
+                "curso"         : curso,
+                "telefono"      : telefono,
+                "dias_restantes": dias_r,
+                "wa_link"       : _wa_link(telefono, msg),
+            })
+            # Foro de inicio — una alarma por curso, no por alumno
+            if curso not in cursos_foro_inicio:
+                cursos_foro_inicio.add(curso)
+                alarmas.append({
+                    "clave"         : f"foro_inicio:{curso}",
+                    "tipo"          : "foro_inicio",
+                    "prioridad"     : 2,
+                    "emoji"         : "🟢",
+                    "titulo"        : f"Publicar foro de inicio — {curso}",
+                    "descripcion"   : f"El curso {curso} arranca hoy. Publicar el foro de presentación e inicio de la primera unidad.",
+                    "accion"        : "Abrir hilo de presentación y foro de inicio de unidad en el aula virtual.",
+                    "alumno_id"     : None,
+                    "alumno_nombre" : f"Curso completo: {curso}",
+                    "curso"         : curso,
+                    "telefono"      : "",
+                    "dias_restantes": None,
+                    "wa_link"       : None,
+                })
+
+        # ─── 7. INICIO HACE 1–3 DÍAS ─────────────────────────────────────────
+        elif dias_i is not None and 1 <= dias_i <= 3:
+            alarmas.append({
+                "clave"         : f"inicio_reciente:{alumno_id}",
+                "tipo"          : "inicio_reciente",
+                "prioridad"     : 3,
+                "emoji"         : "🔵",
+                "titulo"        : f"Inicio reciente ({dias_i} día{'s' if dias_i!=1 else ''} atrás)",
+                "descripcion"   : f"El alumno inició el {fecha_inicio}. Verificar que ingresó correctamente al aula.",
+                "accion"        : "Confirmar acceso al aula virtual y progreso inicial.",
+                "alumno_id"     : alumno_id,
+                "alumno_nombre" : nombre,
+                "curso"         : curso,
+                "telefono"      : telefono,
+                "dias_restantes": dias_r,
+                "wa_link"       : None,
+            })
+
+        # ─── 8. FORO DE CIERRE DE UNIDAD ─────────────────────────────────────
+        if dias_r is not None and 3 <= dias_r <= 7 and curso not in cursos_foro_cierre:
+            cursos_foro_cierre.add(curso)
+            alarmas.append({
+                "clave"         : f"foro_cierre:{curso}",
+                "tipo"          : "foro_cierre",
+                "prioridad"     : 2,
+                "emoji"         : "🟡",
+                "titulo"        : f"Publicar foro de cierre — {curso}",
+                "descripcion"   : f"El curso {curso} cierra en {dias_r} días. Publicar foro de cierre de unidad y evaluación final.",
+                "accion"        : "Abrir foro de cierre, reflexión final y recordatorio de evaluación.",
+                "alumno_id"     : None,
+                "alumno_nombre" : f"Curso completo: {curso}",
+                "curso"         : curso,
+                "telefono"      : "",
+                "dias_restantes": dias_r,
+                "wa_link"       : None,
+            })
+
+        # ─── 9. SIN TELÉFONO REGISTRADO ──────────────────────────────────────
+        if not telefono and (
+            (dias_r is not None and dias_r <= 30) or progreso < 50
+        ):
+            alarmas.append({
+                "clave"         : f"sin_tel:{alumno_id}",
+                "tipo"          : "sin_telefono",
+                "prioridad"     : 3,
+                "emoji"         : "🔵",
+                "titulo"        : "Sin teléfono de contacto",
+                "descripcion"   : f"El alumno no tiene teléfono registrado y requiere seguimiento (progreso {progreso:.0f}%).",
+                "accion"        : "Registrar número de WhatsApp en la ficha del alumno.",
+                "alumno_id"     : alumno_id,
+                "alumno_nombre" : nombre,
+                "curso"         : curso,
+                "telefono"      : "",
+                "dias_restantes": dias_r,
+                "wa_link"       : None,
+            })
+
+        # ─── 10. PROGRESO MENOR AL 40% ───────────────────────────────────────
+        if progreso < 40 and not supera_75 and not (
+            # Evitar duplicar con las alarmas críticas ya generadas
+            (dias_r is not None and dias_r <= 20 and progreso < 25) or
+            (dias_r is not None and dias_r < 0)
+        ):
+            msg = (f"Hola {nombre} 👋, notamos que tu progreso en *{curso}* es de {progreso:.0f}%, "
+                   f"que está por debajo del 40% esperado. "
+                   f"¿Hay algo en lo que podamos ayudarte para avanzar? "
+                   f"¡Estamos aquí para acompañarte! 💪")
+            alarmas.append({
+                "clave"         : f"bajo40:{alumno_id}",
+                "tipo"          : "progreso_bajo_40",
+                "prioridad"     : 2,
+                "emoji"         : "🟠",
+                "titulo"        : f"Progreso bajo el 40% — {progreso:.0f}%",
+                "descripcion"   : f"El alumno lleva {progreso:.0f}% de avance, por debajo del umbral mínimo del 40%."
+                                  + (f" Quedan {dias_r} día{'s' if dias_r != 1 else ''}." if dias_r is not None and dias_r > 0 else ""),
+                "accion"        : "Contactar al alumno para identificar obstáculos y reforzar el acompañamiento.",
+                "alumno_id"     : alumno_id,
+                "alumno_nombre" : nombre,
+                "curso"         : curso,
+                "telefono"      : telefono,
+                "dias_restantes": dias_r,
+                "wa_link"       : _wa_link(telefono, msg),
+            })
+
+    # Ordenar por prioridad ascendente, luego días restantes
+    alarmas.sort(key=lambda x: (
+        x["prioridad"],
+        x["dias_restantes"] if x["dias_restantes"] is not None else 9999
+    ))
+    return alarmas
+
+
+def _get_completadas_hoy(tutor_id):
+    """Devuelve el set de claves completadas hoy por este tutor."""
+    from datetime import date as _d
+    hoy = _d.today().isoformat()
+    conn = get_form_conn()
+    rows = conn.execute(
+        "SELECT clave FROM alarmas_completadas WHERE tutor_id=? AND fecha_dia=?",
+        (tutor_id, hoy)
+    ).fetchall()
+    conn.close()
+    return {r["clave"] for r in rows}
 
 # ── Ruta: listado de alumnos + carga de Excel ──────────────────────────────────
 @formacion_bp.route("/formacion", methods=["GET", "POST"])
@@ -201,6 +538,7 @@ def formacion():
                         """, (curso, nombre, progreso, examenes, f_inicio, f_fin, supera_75, telefono, tutor_id))
                         count += 1
 
+                    _registrar_evento_historico(tutor_id, f"Importación (+{count} alumnos)", conn)
                     conn.commit()
                     conn.close()
                     exito = f"✅ {count} alumnos importados correctamente."
@@ -208,14 +546,28 @@ def formacion():
             except Exception as e:
                 errores.append(f"Error al procesar el archivo: {e}")
 
-    # Cargar alumnos del tutor actual
+    # Cargar alumnos activos del tutor actual (excluye archivados)
     conn = get_form_conn()
     alumnos = conn.execute(
-        "SELECT * FROM alumnos WHERE tutor_id=? ORDER BY id DESC", (tutor_id,)
+        "SELECT * FROM alumnos WHERE tutor_id=? AND (archivado IS NULL OR archivado=0) ORDER BY id DESC",
+        (tutor_id,)
     ).fetchall()
+    # Contar cursos archivados para el badge
+    row_arch = conn.execute(
+        "SELECT COUNT(DISTINCT curso) as n FROM alumnos WHERE tutor_id=? AND archivado=1",
+        (tutor_id,)
+    ).fetchone()
+    archivados_count = row_arch["n"] if row_arch else 0
     conn.close()
 
-    return render_template("formacion.html", alumnos=alumnos, errores=errores, exito=exito)
+    # Contar alarmas pendientes del día para el badge
+    alarmas_hoy      = _generar_alarmas(tutor_id)
+    completadas_hoy  = _get_completadas_hoy(tutor_id)
+    alarmas_pendientes = sum(1 for a in alarmas_hoy if a["clave"] not in completadas_hoy)
+
+    return render_template("formacion.html", alumnos=alumnos, errores=errores, exito=exito,
+                           alarmas_pendientes=alarmas_pendientes,
+                           archivados_count=archivados_count)
 
 
 # ── Ruta: editar alumno (teléfono) ─────────────────────────────────────────────
@@ -238,6 +590,7 @@ def eliminar_alumno(alumno_id):
     conn = get_form_conn()
     conn.execute("DELETE FROM alumnos WHERE id=? AND tutor_id=?",
                  (alumno_id, session["user_id"]))
+    _registrar_evento_historico(session["user_id"], "Eliminación de alumno", conn)
     conn.commit()
     conn.close()
     return redirect(url_for("formacion.formacion"))
@@ -249,12 +602,125 @@ def eliminar_alumno(alumno_id):
 def borrar_todos():
     conn = get_form_conn()
     conn.execute("DELETE FROM alumnos WHERE tutor_id=?", (session["user_id"],))
+    _registrar_evento_historico(session["user_id"], "Borrado total", conn)
     conn.commit()
     conn.close()
     return redirect(url_for("formacion.formacion"))
 
 
-# ── Ruta: guardar snapshot del estado actual ───────────────────────────────────
+# ── Ruta: archivar curso completo ─────────────────────────────────────────────
+@formacion_bp.route("/formacion/archivar_curso", methods=["POST"])
+@login_required
+def archivar_curso():
+    tutor_id = session["user_id"]
+    curso    = request.form.get("curso", "").strip()
+    if not curso:
+        return redirect(url_for("formacion.formacion"))
+
+    ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn  = get_form_conn()
+    conn.execute("""
+        UPDATE alumnos
+        SET archivado=1, archivado_at=?
+        WHERE tutor_id=? AND curso=? AND (archivado IS NULL OR archivado=0)
+    """, (ahora, tutor_id, curso))
+    _registrar_evento_historico(tutor_id, f"Curso archivado: {curso}", conn)
+    conn.commit()
+    conn.close()
+    return redirect(url_for("formacion.formacion"))
+
+
+# ── Ruta: restaurar curso archivado ───────────────────────────────────────────
+@formacion_bp.route("/formacion/restaurar_curso", methods=["POST"])
+@login_required
+def restaurar_curso():
+    tutor_id = session["user_id"]
+    curso    = request.form.get("curso", "").strip()
+    if not curso:
+        return redirect(url_for("formacion.formacion_archivados"))
+
+    conn = get_form_conn()
+    conn.execute("""
+        UPDATE alumnos
+        SET archivado=0, archivado_at=NULL
+        WHERE tutor_id=? AND curso=? AND archivado=1
+    """, (tutor_id, curso))
+    _registrar_evento_historico(tutor_id, f"Curso restaurado: {curso}", conn)
+    conn.commit()
+    conn.close()
+    return redirect(url_for("formacion.formacion_archivados"))
+
+
+# ── Ruta: vista de archivados ──────────────────────────────────────────────────
+@formacion_bp.route("/formacion/archivados")
+@login_required
+def formacion_archivados():
+    tutor_id = session["user_id"]
+    conn     = get_form_conn()
+
+    alumnos_arch = [dict(a) for a in conn.execute(
+        """SELECT * FROM alumnos
+           WHERE tutor_id=? AND archivado=1
+           ORDER BY archivado_at DESC, curso, nombre""",
+        (tutor_id,)
+    ).fetchall()]
+    conn.close()
+
+    # Normalizar
+    for a in alumnos_arch:
+        a["progreso"]  = float(a.get("progreso") or 0)
+        a["examenes"]  = int(a.get("examenes") or 0)
+        a["supera_75"] = int(a.get("supera_75") or 0)
+        a["curso"]     = a.get("curso") or "Sin curso"
+
+    # Agrupar por curso
+    from collections import defaultdict, OrderedDict
+    grupos_raw = defaultdict(list)
+    for a in alumnos_arch:
+        grupos_raw[a["curso"]].append(a)
+
+    # Ordenar grupos por fecha de archivo (más reciente primero)
+    def _fecha_archivo_grupo(alumnos_lista):
+        fechas = [a.get("archivado_at") or "" for a in alumnos_lista]
+        return max(fechas) if fechas else ""
+
+    grupos_ordenados = sorted(grupos_raw.items(),
+                              key=lambda kv: _fecha_archivo_grupo(kv[1]),
+                              reverse=True)
+
+    # Calcular estadísticas por grupo
+    grupos = []
+    for curso_nombre, lista in grupos_ordenados:
+        total     = len(lista)
+        superan   = sum(1 for a in lista if a["supera_75"] == 1)
+        pct       = round(superan / total * 100, 1) if total else 0
+        avg_prog  = round(sum(a["progreso"] for a in lista) / total, 1) if total else 0
+        examenes  = sum(a["examenes"] for a in lista)
+        fecha_arch = (lista[0].get("archivado_at") or "")[:10]
+        fecha_ini  = min((a.get("fecha_inicio") or "9999" for a in lista if a.get("fecha_inicio")), default="—")
+        fecha_fin  = max((a.get("fecha_fin")    or "0000" for a in lista if a.get("fecha_fin")),    default="—")
+        grupos.append({
+            "curso"      : curso_nombre,
+            "alumnos"    : lista,
+            "total"      : total,
+            "superan"    : superan,
+            "pct_exito"  : pct,
+            "avg_progreso": avg_prog,
+            "total_examenes": examenes,
+            "fecha_archivo": fecha_arch,
+            "fecha_inicio" : fecha_ini if fecha_ini != "9999" else "—",
+            "fecha_fin"    : fecha_fin if fecha_fin != "0000" else "—",
+        })
+
+    total_archivados = len(alumnos_arch)
+    total_cursos_arch = len(grupos)
+
+    return render_template(
+        "formacion_archivados.html",
+        grupos=grupos,
+        total_archivados=total_archivados,
+        total_cursos_arch=total_cursos_arch,
+    )
 @formacion_bp.route("/formacion/guardar_snapshot", methods=["POST"])
 @login_required
 def guardar_snapshot():
@@ -264,7 +730,7 @@ def guardar_snapshot():
 
     conn    = get_form_conn()
     alumnos = conn.execute(
-        "SELECT * FROM alumnos WHERE tutor_id=?", (tutor_id,)
+        "SELECT * FROM alumnos WHERE tutor_id=? AND (archivado IS NULL OR archivado=0)", (tutor_id,)
     ).fetchall()
 
     total        = len(alumnos)
@@ -293,6 +759,74 @@ def borrar_snapshot(snap_id):
     return redirect(url_for("formacion.formacion_dashboard"))
 
 
+# ── Ruta: sistema de alarmas ───────────────────────────────────────────────────
+@formacion_bp.route("/formacion/alarmas")
+@login_required
+def formacion_alarmas():
+    tutor_id   = session["user_id"]
+    alarmas    = _generar_alarmas(tutor_id)
+    completadas = _get_completadas_hoy(tutor_id)
+
+    # Separar pendientes y completadas
+    for a in alarmas:
+        a["completada"] = a["clave"] in completadas
+
+    total      = len(alarmas)
+    pendientes = sum(1 for a in alarmas if not a["completada"])
+    hechas     = total - pendientes
+
+    from datetime import date as _d
+    hoy_str = _d.today().strftime("%A %d de %B de %Y")
+
+    return render_template(
+        "formacion_alarmas.html",
+        alarmas=alarmas,
+        total=total,
+        pendientes=pendientes,
+        hechas=hechas,
+        hoy_str=hoy_str,
+    )
+
+
+@formacion_bp.route("/formacion/alarmas/completar", methods=["POST"])
+@login_required
+def alarma_completar():
+    from datetime import date as _d
+    tutor_id = session["user_id"]
+    clave    = request.form.get("clave", "").strip()
+    accion   = request.form.get("accion", "completar")  # "completar" | "deshacer"
+    hoy      = _d.today().isoformat()
+
+    if not clave:
+        return redirect(url_for("formacion.formacion_alarmas"))
+
+    conn = get_form_conn()
+    if accion == "deshacer":
+        conn.execute(
+            "DELETE FROM alarmas_completadas WHERE tutor_id=? AND clave=? AND fecha_dia=?",
+            (tutor_id, clave, hoy)
+        )
+    else:
+        conn.execute(
+            "INSERT OR IGNORE INTO alarmas_completadas (tutor_id, clave, fecha_dia) VALUES (?,?,?)",
+            (tutor_id, clave, hoy)
+        )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("formacion.formacion_alarmas"))
+
+
+@formacion_bp.route("/formacion/alarmas/badge")
+@login_required
+def alarmas_badge():
+    """Endpoint JSON para actualizar el badge sin recargar la página."""
+    tutor_id   = session["user_id"]
+    alarmas    = _generar_alarmas(tutor_id)
+    completadas = _get_completadas_hoy(tutor_id)
+    pendientes = sum(1 for a in alarmas if a["clave"] not in completadas)
+    return jsonify({"pendientes": pendientes})
+
+
 # ── Ruta: dashboard de formación ───────────────────────────────────────────────
 @formacion_bp.route("/formacion/dashboard")
 @login_required
@@ -302,7 +836,7 @@ def formacion_dashboard():
 
     # Convertir a dicts para que tojson pueda serializarlos en el template
     alumnos = [dict(a) for a in conn.execute(
-        "SELECT * FROM alumnos WHERE tutor_id=? ORDER BY progreso DESC", (tutor_id,)
+        "SELECT * FROM alumnos WHERE tutor_id=? AND (archivado IS NULL OR archivado=0) ORDER BY progreso DESC", (tutor_id,)
     ).fetchall()]
     conn.close()
 
@@ -335,6 +869,19 @@ def formacion_dashboard():
     snap_avg    = [s["avg_progreso"] for s in snapshots]
     snap_total  = [s["total"]        for s in snapshots]
 
+    # Historial automático
+    conn3    = get_form_conn()
+    historial_auto = [dict(h) for h in conn3.execute(
+        "SELECT * FROM historial_automatico WHERE tutor_id=? ORDER BY id DESC LIMIT 50",
+        (tutor_id,)
+    ).fetchall()]
+    conn3.close()
+
+    # Datos para gráfico de evolución automática
+    hist_labels   = [h["fecha"]         for h in reversed(historial_auto)]
+    hist_alumnos  = [h["total_alumnos"] for h in reversed(historial_auto)]
+    hist_cursos   = [h["total_cursos"]  for h in reversed(historial_auto)]
+
     return render_template(
         "formacion_dashboard.html",
         alumnos=alumnos,
@@ -350,6 +897,10 @@ def formacion_dashboard():
         snap_pct=snap_pct,
         snap_avg=snap_avg,
         snap_total=snap_total,
+        historial_auto=historial_auto,
+        hist_labels=hist_labels,
+        hist_alumnos=hist_alumnos,
+        hist_cursos=hist_cursos,
     )
 
 
@@ -423,7 +974,7 @@ def exportar_excel():
     tutor_id = session["user_id"]
     conn     = get_form_conn()
     alumnos  = [dict(a) for a in conn.execute(
-        "SELECT * FROM alumnos WHERE tutor_id=? ORDER BY curso, nombre", (tutor_id,)
+        "SELECT * FROM alumnos WHERE tutor_id=? AND (archivado IS NULL OR archivado=0) ORDER BY curso, nombre", (tutor_id,)
     ).fetchall()]
     conn.close()
 

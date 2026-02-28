@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+{% block title %}Alarmas del Día — Formación{% endblock %}
+
+{% block content %}
+
+<style>
+  .alarma-card {
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg2);
+    margin-bottom: .75rem;
+    transition: box-shadow .15s, opacity .2s;
+    overflow: hidden;
+  }
+  .alarma-card.completada { opacity: .42; }
+  .alarma-card:hover      { box-shadow: 0 2px 16px rgba(0,0,0,.15); }
+
+  .alarma-stripe          { width: 5px; flex-shrink: 0; }
+  .stripe-1               { background: var(--red); }
+  .stripe-2               { background: var(--amber); }
+  .stripe-3               { background: var(--blue); }
+
+  .alarma-inner           { display: flex; align-items: stretch; }
+  .alarma-body            { flex: 1; padding: .8rem 1rem; }
+  .alarma-titulo          { font-weight: 700; font-size: .9rem; margin-bottom: .2rem; }
+  .alarma-desc            { font-size: .79rem; color: var(--text-muted); margin-bottom: .35rem; }
+  .alarma-accion          { font-size: .77rem; color: var(--accent); font-style: italic; }
+  .alarma-card.completada .alarma-titulo,
+  .alarma-card.completada .alarma-desc,
+  .alarma-card.completada .alarma-accion { text-decoration: line-through; color: var(--text-muted); }
+
+  .alarma-meta            { display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.5rem; align-items:center; }
+  .alarma-actions         { display:flex; flex-direction:column; justify-content:center;
+                            align-items:flex-end; gap:.35rem; padding:.8rem .85rem; flex-shrink:0; min-width:116px; }
+
+  .seccion-hdr            { display:flex; align-items:center; gap:.55rem;
+                            margin: 1.3rem 0 .6rem; padding-bottom:.4rem;
+                            border-bottom: 1.5px solid var(--border); }
+  .seccion-hdr h5         { margin:0; font-weight:700; font-size:.93rem; }
+
+  .filter-tabs            { display:flex; gap:.4rem; flex-wrap:wrap; margin-bottom:1rem; }
+  .ftab                   { padding:.3rem .78rem; border-radius:99px; border:1.5px solid var(--border);
+                            background:var(--bg3); color:var(--text-muted); font-size:.78rem;
+                            font-weight:600; cursor:pointer; transition:all .15s; user-select:none; }
+  .ftab.active            { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .ftab .tb               { background:rgba(0,0,0,.15); padding:.08rem .38rem;
+                            border-radius:99px; font-size:.7rem; margin-left:.2rem; }
+
+  .ring-svg               { width:46px; height:46px; }
+  .ring-bg                { fill:none; stroke:var(--bg3); stroke-width:5; }
+  .ring-fg                { fill:none; stroke-width:5; stroke-linecap:round;
+                            transform:rotate(-90deg); transform-origin:23px 23px; }
+
+  .sticky-top-bar         { position:sticky; top:0; z-index:10; background:var(--bg);
+                            padding:.4rem 0 .5rem; border-bottom:1px solid var(--border);
+                            margin-bottom:.5rem; }
+</style>
+
+{# ── Agrupar alarmas por prioridad #}
+{% set criticas     = alarmas | selectattr('prioridad', 'equalto', 1) | list %}
+{% set urgentes     = alarmas | selectattr('prioridad', 'equalto', 2) | list %}
+{% set informativas = alarmas | selectattr('prioridad', 'equalto', 3) | list %}
+
+{# ── STICKY HEADER ── #}
+<div class="sticky-top-bar">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div>
+      <h4 style="font-weight:700; margin:0;">🔔 Alarmas del Tutor</h4>
+      <div style="font-family:var(--mono); font-size:.74rem; color:var(--text-muted); margin-top:.15rem;">
+        {{ hoy_str }}
+        {% if pendientes > 0 %}
+          · <span style="color:var(--red); font-weight:700;">{{ pendientes }} pendiente{{ 's' if pendientes != 1 else '' }}</span>
+        {% else %}
+          · <span style="color:var(--accent);">✔ Todo al día</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('formacion.formacion_dashboard') }}" class="btn btn-g-ghost btn-sm">◈ Dashboard</a>
+      <a href="{{ url_for('formacion.formacion') }}" class="btn btn-g-ghost btn-sm">← Formación</a>
+    </div>
+  </div>
+</div>
+
+{# ── KPI STRIP ── #}
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3">
+    <div class="stat-card blue">
+      <div class="stat-label">Tareas hoy</div>
+      <div class="stat-value">{{ total }}</div>
+      <div style="font-size:.75rem; color:var(--text-muted);">alarmas activas</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card red">
+      <div class="stat-label">🔴 Críticas</div>
+      <div class="stat-value" style="color:var(--red);">{{ criticas | length }}</div>
+      <div style="font-size:.75rem; color:var(--text-muted);">acción inmediata</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card amber">
+      <div class="stat-label">🟡 Urgentes</div>
+      <div class="stat-value" style="color:var(--amber);">{{ urgentes | length }}</div>
+      <div style="font-size:.75rem; color:var(--text-muted);">seguimiento hoy</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    {% set pct    = ((hechas / total * 100) | round(0) | int) if total else 0 %}
+    {% set circ   = 2 * 3.14159 * 18 %}
+    {% set offset = circ * (1 - pct / 100) %}
+    <div class="stat-card green" style="display:flex; align-items:center; gap:.6rem;">
+      <div>
+        <div class="stat-label">Completadas</div>
+        <div class="stat-value" style="color:var(--accent); font-size:1.5rem;">{{ pct }}%</div>
+        <div style="font-size:.75rem; color:var(--text-muted);">{{ hechas }}/{{ total }} tareas</div>
+      </div>
+      <svg class="ring-svg ms-auto" viewBox="0 0 46 46">
+        <circle class="ring-bg" cx="23" cy="23" r="18"/>
+        <circle class="ring-fg" cx="23" cy="23" r="18"
+          stroke="{{ '#3fb950' if pct==100 else ('#d29922' if pct>0 else '#f85149') }}"
+          stroke-dasharray="{{ circ }}"
+          stroke-dashoffset="{{ offset }}"/>
+      </svg>
+    </div>
+  </div>
+</div>
+
+{% if total == 0 %}
+<div class="gcard">
+  <div class="gcard-body" style="text-align:center; padding:3.5rem 1rem;">
+    <div style="font-size:3.5rem; margin-bottom:.7rem;">🎉</div>
+    <h5 style="font-weight:700; margin-bottom:.4rem;">¡Sin tareas pendientes hoy!</h5>
+    <p style="color:var(--text-muted); font-size:.88rem;">No hay alarmas activas. Todos los alumnos están en orden.</p>
+    <a href="{{ url_for('formacion.formacion') }}" class="btn btn-g-primary mt-2">← Volver a Formación</a>
+  </div>
+</div>
+
+{% else %}
+
+{# ── FILTROS ── #}
+<div class="filter-tabs" id="filterTabs">
+  <button class="ftab active" data-filter="todas">Todas <span class="tb">{{ total }}</span></button>
+  <button class="ftab" data-filter="pendientes">⏳ Pendientes <span class="tb">{{ pendientes }}</span></button>
+  <button class="ftab" data-filter="1">🔴 Crítico <span class="tb">{{ criticas | length }}</span></button>
+  <button class="ftab" data-filter="2">🟡 Urgente <span class="tb">{{ urgentes | length }}</span></button>
+  <button class="ftab" data-filter="3">🔵 Info <span class="tb">{{ informativas | length }}</span></button>
+  <button class="ftab" data-filter="completadas">✅ Hechas <span class="tb">{{ hechas }}</span></button>
+</div>
+
+{# ────────────────────────────────────────────────────── #}
+{# SECCIÓN CRÍTICO                                        #}
+{# ────────────────────────────────────────────────────── #}
+{% if criticas %}
+<div class="seccion-hdr" data-sec="1">
+  <span style="font-size:1.05rem;">🔴</span>
+  <h5>Acción crítica</h5>
+  <span class="badge-g badge-pending ms-1" style="font-size:.67rem;">{{ criticas | length }} tarea{{ 's' if criticas | length != 1 else '' }}</span>
+  <span style="font-size:.75rem; color:var(--text-muted); margin-left:.3rem;">— Atención inmediata</span>
+</div>
+{% for a in criticas %}
+<div class="alarma-card {% if a.completada %}completada{% endif %}"
+     data-prioridad="{{ a.prioridad }}" data-completada="{{ '1' if a.completada else '0' }}">
+  <div class="alarma-inner">
+    <div class="alarma-stripe stripe-{{ a.prioridad }}"></div>
+    <div class="alarma-body">
+      <div class="alarma-titulo">{{ a.emoji }} {{ a.titulo }}</div>
+      <div class="alarma-desc">{{ a.descripcion }}</div>
+      <div class="alarma-accion">→ {{ a.accion }}</div>
+      <div class="alarma-meta">
+        <span class="badge-g badge-cat" style="font-size:.67rem;">{{ a.curso }}</span>
+        {% if a.alumno_id %}<span style="font-size:.75rem; font-weight:600;">👤 {{ a.alumno_nombre }}</span>
+        {% else %}<span style="font-size:.75rem; font-weight:600; color:var(--text-muted);">📚 {{ a.alumno_nombre }}</span>{% endif %}
+        {% if a.dias_restantes is not none %}
+          <span style="font-family:var(--mono); font-size:.71rem; color:{% if a.dias_restantes < 0 %}var(--red){% elif a.dias_restantes <= 7 %}var(--amber){% else %}var(--text-muted){% endif %};">
+            {% if a.dias_restantes < 0 %}🔴 Venció hace {{ a.dias_restantes | abs }} día{{ 's' if (a.dias_restantes | abs) != 1 else '' }}
+            {% elif a.dias_restantes == 0 %}🟡 Vence hoy
+            {% else %}📅 {{ a.dias_restantes }} día{{ 's' if a.dias_restantes != 1 else '' }} restante{{ 's' if a.dias_restantes != 1 else '' }}{% endif %}
+          </span>
+        {% endif %}
+        {% if a.telefono %}<span style="font-size:.7rem; color:var(--text-muted); font-family:var(--mono);">📱 {{ a.telefono }}</span>
+        {% elif a.alumno_id and a.tipo != 'sin_telefono' %}<span style="font-size:.7rem; color:var(--red);">⚠ sin teléfono</span>{% endif %}
+      </div>
+    </div>
+    <div class="alarma-actions">
+      {% if a.wa_link %}<a href="{{ a.wa_link }}" target="_blank" class="btn btn-g-success btn-sm" style="white-space:nowrap; font-size:.76rem;">💬 Enviar WA</a>{% endif %}
+      {% if a.alumno_id and not a.wa_link and a.telefono == '' %}<a href="{{ url_for('formacion.formacion') }}" class="btn btn-g-ghost btn-sm" style="font-size:.74rem; white-space:nowrap;">✏ Registrar tel.</a>{% endif %}
+      <form method="POST" action="{{ url_for('formacion.alarma_completar') }}">
+        <input type="hidden" name="clave" value="{{ a.clave }}">
+        {% if a.completada %}<input type="hidden" name="accion" value="deshacer">
+        <button type="submit" class="btn btn-g-ghost btn-sm" style="white-space:nowrap; font-size:.74rem;">↩ Deshacer</button>
+        {% else %}<input type="hidden" name="accion" value="completar">
+        <button type="submit" class="btn btn-g-primary btn-sm" style="white-space:nowrap; font-size:.74rem;">✔ Listo</button>{% endif %}
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{# ────────────────────────────────────────────────────── #}
+{# SECCIÓN URGENTE                                        #}
+{# ────────────────────────────────────────────────────── #}
+{% if urgentes %}
+<div class="seccion-hdr" data-sec="2">
+  <span style="font-size:1.05rem;">🟡</span>
+  <h5>Seguimiento urgente</h5>
+  <span class="badge-g badge-cat ms-1" style="font-size:.67rem;">{{ urgentes | length }} tarea{{ 's' if urgentes | length != 1 else '' }}</span>
+  <span style="font-size:.75rem; color:var(--text-muted); margin-left:.3rem;">— Completar hoy</span>
+</div>
+{% for a in urgentes %}
+<div class="alarma-card {% if a.completada %}completada{% endif %}"
+     data-prioridad="{{ a.prioridad }}" data-completada="{{ '1' if a.completada else '0' }}">
+  <div class="alarma-inner">
+    <div class="alarma-stripe stripe-{{ a.prioridad }}"></div>
+    <div class="alarma-body">
+      <div class="alarma-titulo">{{ a.emoji }} {{ a.titulo }}</div>
+      <div class="alarma-desc">{{ a.descripcion }}</div>
+      <div class="alarma-accion">→ {{ a.accion }}</div>
+      <div class="alarma-meta">
+        <span class="badge-g badge-cat" style="font-size:.67rem;">{{ a.curso }}</span>
+        {% if a.alumno_id %}<span style="font-size:.75rem; font-weight:600;">👤 {{ a.alumno_nombre }}</span>
+        {% else %}<span style="font-size:.75rem; font-weight:600; color:var(--text-muted);">📚 {{ a.alumno_nombre }}</span>{% endif %}
+        {% if a.dias_restantes is not none %}
+          <span style="font-family:var(--mono); font-size:.71rem; color:{% if a.dias_restantes < 0 %}var(--red){% elif a.dias_restantes <= 7 %}var(--amber){% else %}var(--text-muted){% endif %};">
+            {% if a.dias_restantes < 0 %}🔴 Venció hace {{ a.dias_restantes | abs }} día{{ 's' if (a.dias_restantes | abs) != 1 else '' }}
+            {% elif a.dias_restantes == 0 %}🟡 Vence hoy
+            {% else %}📅 {{ a.dias_restantes }} día{{ 's' if a.dias_restantes != 1 else '' }} restante{{ 's' if a.dias_restantes != 1 else '' }}{% endif %}
+          </span>
+        {% endif %}
+        {% if a.telefono %}<span style="font-size:.7rem; color:var(--text-muted); font-family:var(--mono);">📱 {{ a.telefono }}</span>
+        {% elif a.alumno_id and a.tipo != 'sin_telefono' %}<span style="font-size:.7rem; color:var(--red);">⚠ sin teléfono</span>{% endif %}
+      </div>
+    </div>
+    <div class="alarma-actions">
+      {% if a.wa_link %}<a href="{{ a.wa_link }}" target="_blank" class="btn btn-g-success btn-sm" style="white-space:nowrap; font-size:.76rem;">💬 Enviar WA</a>{% endif %}
+      {% if a.alumno_id and not a.wa_link and a.telefono == '' %}<a href="{{ url_for('formacion.formacion') }}" class="btn btn-g-ghost btn-sm" style="font-size:.74rem; white-space:nowrap;">✏ Registrar tel.</a>{% endif %}
+      <form method="POST" action="{{ url_for('formacion.alarma_completar') }}">
+        <input type="hidden" name="clave" value="{{ a.clave }}">
+        {% if a.completada %}<input type="hidden" name="accion" value="deshacer">
+        <button type="submit" class="btn btn-g-ghost btn-sm" style="white-space:nowrap; font-size:.74rem;">↩ Deshacer</button>
+        {% else %}<input type="hidden" name="accion" value="completar">
+        <button type="submit" class="btn btn-g-primary btn-sm" style="white-space:nowrap; font-size:.74rem;">✔ Listo</button>{% endif %}
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{# ────────────────────────────────────────────────────── #}
+{# SECCIÓN INFORMATIVO                                    #}
+{# ────────────────────────────────────────────────────── #}
+{% if informativas %}
+<div class="seccion-hdr" data-sec="3">
+  <span style="font-size:1.05rem;">🔵</span>
+  <h5>Informativo</h5>
+  <span class="badge-g ms-1" style="font-size:.67rem; background:rgba(88,166,255,.15); color:#58a6ff; border:1px solid #58a6ff;">{{ informativas | length }} tarea{{ 's' if informativas | length != 1 else '' }}</span>
+  <span style="font-size:.75rem; color:var(--text-muted); margin-left:.3rem;">— Verificar y registrar</span>
+</div>
+{% for a in informativas %}
+<div class="alarma-card {% if a.completada %}completada{% endif %}"
+     data-prioridad="{{ a.prioridad }}" data-completada="{{ '1' if a.completada else '0' }}">
+  <div class="alarma-inner">
+    <div class="alarma-stripe stripe-{{ a.prioridad }}"></div>
+    <div class="alarma-body">
+      <div class="alarma-titulo">{{ a.emoji }} {{ a.titulo }}</div>
+      <div class="alarma-desc">{{ a.descripcion }}</div>
+      <div class="alarma-accion">→ {{ a.accion }}</div>
+      <div class="alarma-meta">
+        <span class="badge-g badge-cat" style="font-size:.67rem;">{{ a.curso }}</span>
+        {% if a.alumno_id %}<span style="font-size:.75rem; font-weight:600;">👤 {{ a.alumno_nombre }}</span>
+        {% else %}<span style="font-size:.75rem; font-weight:600; color:var(--text-muted);">📚 {{ a.alumno_nombre }}</span>{% endif %}
+        {% if a.dias_restantes is not none %}
+          <span style="font-family:var(--mono); font-size:.71rem; color:{% if a.dias_restantes < 0 %}var(--red){% elif a.dias_restantes <= 7 %}var(--amber){% else %}var(--text-muted){% endif %};">
+            {% if a.dias_restantes < 0 %}🔴 Venció hace {{ a.dias_restantes | abs }} día{{ 's' if (a.dias_restantes | abs) != 1 else '' }}
+            {% elif a.dias_restantes == 0 %}🟡 Vence hoy
+            {% else %}📅 {{ a.dias_restantes }} día{{ 's' if a.dias_restantes != 1 else '' }} restante{{ 's' if a.dias_restantes != 1 else '' }}{% endif %}
+          </span>
+        {% endif %}
+        {% if a.telefono %}<span style="font-size:.7rem; color:var(--text-muted); font-family:var(--mono);">📱 {{ a.telefono }}</span>
+        {% elif a.alumno_id and a.tipo != 'sin_telefono' %}<span style="font-size:.7rem; color:var(--red);">⚠ sin teléfono</span>{% endif %}
+      </div>
+    </div>
+    <div class="alarma-actions">
+      {% if a.wa_link %}<a href="{{ a.wa_link }}" target="_blank" class="btn btn-g-success btn-sm" style="white-space:nowrap; font-size:.76rem;">💬 Enviar WA</a>{% endif %}
+      {% if a.alumno_id and not a.wa_link and a.telefono == '' %}<a href="{{ url_for('formacion.formacion') }}" class="btn btn-g-ghost btn-sm" style="font-size:.74rem; white-space:nowrap;">✏ Registrar tel.</a>{% endif %}
+      <form method="POST" action="{{ url_for('formacion.alarma_completar') }}">
+        <input type="hidden" name="clave" value="{{ a.clave }}">
+        {% if a.completada %}<input type="hidden" name="accion" value="deshacer">
+        <button type="submit" class="btn btn-g-ghost btn-sm" style="white-space:nowrap; font-size:.74rem;">↩ Deshacer</button>
+        {% else %}<input type="hidden" name="accion" value="completar">
+        <button type="submit" class="btn btn-g-primary btn-sm" style="white-space:nowrap; font-size:.74rem;">✔ Listo</button>{% endif %}
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{% endif %}{# end if total > 0 #}
+
+<div id="no-filter-results" style="display:none; text-align:center; padding:2.5rem; color:var(--text-muted);">
+  <div style="font-size:1.8rem; margin-bottom:.4rem;">🔍</div>
+  No hay alarmas en esta categoría.
+</div>
+
+<script>
+const tabs  = document.querySelectorAll('#filterTabs .ftab');
+const cards = document.querySelectorAll('.alarma-card');
+const secs  = document.querySelectorAll('.seccion-hdr');
+const noRes = document.getElementById('no-filter-results');
+
+function applyFilter(filter) {
+  let visible = 0;
+  cards.forEach(card => {
+    let show = false;
+    if      (filter === 'todas')       show = true;
+    else if (filter === 'pendientes')  show = card.dataset.completada === '0';
+    else if (filter === 'completadas') show = card.dataset.completada === '1';
+    else                               show = card.dataset.prioridad  === filter;
+    card.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+
+  secs.forEach(sec => {
+    const p   = sec.dataset.sec;
+    const any = [...cards].some(c => c.dataset.prioridad === p && c.style.display !== 'none');
+    sec.style.display = any ? '' : 'none';
+  });
+
+  if (noRes) noRes.style.display = visible === 0 ? 'block' : 'none';
+}
+
+tabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    tabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    applyFilter(tab.dataset.filter);
+  });
+});
+
+applyFilter('todas');
+</script>
+
+{% endblock %}

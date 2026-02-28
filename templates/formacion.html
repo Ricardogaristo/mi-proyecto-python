@@ -17,6 +17,38 @@
     <a href="{{ url_for('formacion.exportar_excel') }}" class="btn btn-g-success">
       ⬇ Descargar Excel
     </a>
+    <a href="{{ url_for('formacion.formacion_alarmas') }}" class="btn btn-g-warning"
+       style="position:relative;">
+      🔔 Alarmas
+      {% if alarmas_pendientes > 0 %}
+      <span style="
+        position:absolute; top:-7px; right:-8px;
+        background:var(--red); color:#fff;
+        font-size:.62rem; font-weight:800;
+        min-width:18px; height:18px;
+        border-radius:99px; display:flex; align-items:center; justify-content:center;
+        padding:0 4px; font-family:var(--mono);
+        box-shadow:0 0 0 2px var(--bg);
+        pointer-events:none;
+      ">{{ alarmas_pendientes }}</span>
+      {% endif %}
+    </a>
+    <a href="{{ url_for('formacion.formacion_archivados') }}" class="btn btn-g-ghost"
+       style="position:relative;">
+      📦 Archivados
+      {% if archivados_count > 0 %}
+      <span style="
+        position:absolute; top:-7px; right:-8px;
+        background:var(--text-muted); color:var(--bg);
+        font-size:.62rem; font-weight:800;
+        min-width:18px; height:18px;
+        border-radius:99px; display:flex; align-items:center; justify-content:center;
+        padding:0 4px; font-family:var(--mono);
+        box-shadow:0 0 0 2px var(--bg);
+        pointer-events:none;
+      ">{{ archivados_count }}</span>
+      {% endif %}
+    </a>
     <a href="{{ url_for('formacion.formacion_dashboard') }}" class="btn btn-g-primary">
       ◈ Ver Dashboard
     </a>
@@ -68,6 +100,43 @@
     </form>
   </div>
 </div>
+
+<!-- ── Archivar curso ──────────────────────────────────────────────────────── -->
+{% set cursos_activos = alumnos | map(attribute='curso') | select | unique | list | sort %}
+{% if cursos_activos %}
+<div class="gcard mb-4">
+  <div class="gcard-header">
+    <span style="color:var(--text-muted)">📦</span>
+    <span class="gcard-title">Archivar curso finalizado</span>
+    <span style="font-size:.75rem; color:var(--text-muted); margin-left:auto;">
+      Los alumnos del curso se moverán al archivador y no aparecerán en la lista activa
+    </span>
+  </div>
+  <div class="gcard-body">
+    <form method="POST" action="{{ url_for('formacion.archivar_curso') }}"
+          onsubmit="return confirm('¿Archivar el curso «' + document.getElementById('sel-curso-arch').value + '»? Los alumnos se moverán al archivador. Podrás restaurarlos en cualquier momento.')">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-5">
+          <label class="form-label">Seleccionar curso</label>
+          <select name="curso" id="sel-curso-arch" class="form-control" required>
+            <option value="" disabled selected>— Elegir curso —</option>
+            {% for c in cursos_activos %}
+            {% set cnt = alumnos | selectattr('curso', 'equalto', c) | list | length %}
+            <option value="{{ c }}">{{ c }}  ({{ cnt }} alumno{{ 's' if cnt != 1 else '' }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <button type="submit" class="btn btn-g-ghost w-100"
+                  style="border-color:var(--amber); color:var(--amber);">
+            📦 Archivar curso
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 <!-- ── Lista de alumnos ───────────────────────────────────────────────────── -->
 <div class="gcard">
