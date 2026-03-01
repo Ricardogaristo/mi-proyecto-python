@@ -1,9 +1,9 @@
 # ── Configuración de MariaDB ──────────────────────────────────────
-DB_HOST=localhost
-DB_PORT=3306
-DB_NAME=gestor_tareas
-DB_USER=root
-DB_PASSWORD=1234
+DB_HOST=postgresql://ricardo:jdyYSeYzq3Ka3Bohw5BUPu16J8iXfBnA@dpg-d6i9g1a4d50c73fr56rg-a.oregon-postgres.render.com/gestor_tareas_5955
+DB_PORT=5432
+DB_NAME=gestor_tareas_5955
+DB_USER=ricardo
+DB_PASSWORD=jdyYSeYzq3Ka3Bohw5BUPu16J8iXfBnA
 
 # ── Flask ─────────────────────────────────────────────────────────
 SECRET_KEY=cambia_esto_por_una_clave_aleatoria_segura
