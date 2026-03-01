@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, session, send_file, url_for, jsonify
-import pymysql
-import pymysql.cursors
+import psycopg2
+import psycopg2.extras
 from functools import wraps
 from datetime import datetime
 import threading
@@ -31,14 +31,13 @@ app.register_blueprint(formacion_bp)
 # --- BASE DE DATOS ---
 
 def get_connection():
-    return pymysql.connect(
-        host="localhost",
-        port=3306,
-        db="gestor_tareas",
-        user="root",
-        password="",
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
+    return psycopg2.connect(
+        host=os.getenv("DB_HOST", "localhost"),
+        port=int(os.getenv("DB_PORT", 5432)),
+        dbname=os.getenv("DB_NAME", "gestor_tareas"),
+        user=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD", ""),
+        cursor_factory=psycopg2.extras.RealDictCursor,
     )
 
 def inicializar_todo():
@@ -50,43 +49,43 @@ def inicializar_todo():
                 username  VARCHAR(100) NOT NULL,
                 email     VARCHAR(255),
                 password  VARCHAR(255) NOT NULL,
-                es_admin  TINYINT(1)   NOT NULL DEFAULT 0,
+                es_admin  SMALLINT NOT NULL DEFAULT 0,
                 PRIMARY KEY (id),
                 UNIQUE KEY uq_username (username),
                 UNIQUE KEY uq_email    (email)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            )
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tareas (
-                id          INT  NOT NULL AUTO_INCREMENT,
+                id          SERIAL NOT NULL,
                 descripcion TEXT NOT NULL,
                 categoria   VARCHAR(150),
                 fecha       DATE,
-                completada  TINYINT(1)  NOT NULL DEFAULT 0,
+                completada  SMALLINT NOT NULL DEFAULT 0,
                 codigo      VARCHAR(50),
                 usuario_id  INT,
-                prioridad   TINYINT     NOT NULL DEFAULT 2,
-                favorita    TINYINT(1)  NOT NULL DEFAULT 0,
+                prioridad   SMALLINT NOT NULL DEFAULT 2,
+                favorita    SMALLINT NOT NULL DEFAULT 0,
                 notas       TEXT,
                 PRIMARY KEY (id),
                 CONSTRAINT fk_tarea_usuario
                     FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            )
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS subtareas (
-                id       INT  NOT NULL AUTO_INCREMENT,
+                id       SERIAL NOT NULL,
                 tarea_id INT  NOT NULL,
                 texto    TEXT NOT NULL,
-                hecha    TINYINT(1) NOT NULL DEFAULT 0,
+                hecha    SMALLINT NOT NULL DEFAULT 0,
                 PRIMARY KEY (id),
                 CONSTRAINT fk_subtarea_tarea
                     FOREIGN KEY (tarea_id) REFERENCES tareas(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            )
         """)
         # Admin por defecto
         cursor.execute("""
-            INSERT IGNORE INTO usuarios (username, email, password, es_admin)
+            INSERT INTO usuarios (username, email, password, es_admin)
             VALUES (%s, %s, %s, %s)
         """, ("admin", "admin@correo.com", "1234", 1))
     conn.commit()
@@ -161,7 +160,7 @@ def registro():
             conn.commit()
             conn.close()
             return redirect(url_for("login"))
-        except pymysql.err.IntegrityError:
+        except psycopg2.errors.UniqueViolation:
             conn.close()
             return render_template("registro.html", error="El usuario o email ya existe ❌")
 
@@ -989,7 +988,8 @@ def backup_restaurar():
 
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+            # PostgreSQL handles FK with DEFERRED - disable triggers instead
+            cursor.execute("SET session_replication_role = replica")
 
             for tabla in orden:
                 filas = tablas.get(tabla, [])
@@ -1006,7 +1006,7 @@ def backup_restaurar():
                 for fila in filas:
                     cursor.execute(sql, list(fila.values()))
 
-            cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+            cursor.execute("SET session_replication_role = DEFAULT")
 
         conn.commit()
         total = sum(len(v) for v in tablas.values())
@@ -1032,4 +1032,4 @@ if __name__ == "__main__":
         print("✅ Backup inicial creado.")
     except Exception as e:
         print(f"⚠  No se pudo crear backup inicial: {e}")
-    app.run(debug=os.getenv("FLASK_DEBUG","0")=="1", port=5000)
+    app.run(debug=os.getenv("FLASK_DEBUG","0")=="1", host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
