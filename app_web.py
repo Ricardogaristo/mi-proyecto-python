@@ -7,7 +7,8 @@ import json
 from collections import defaultdict
 import io
 import os
-
+from dotenv import load_dotenv
+load_dotenv()
 
 # Soporte dual: MariaDB (local) o PostgreSQL (Render)
 _USE_PG = bool(os.getenv("DB_HOST"))
@@ -17,7 +18,6 @@ if _USE_PG:
 else:
     import pymysql
     import pymysql.cursors
-load_dotenv()
 
 # Para crear Excel bonito
 from openpyxl import Workbook
