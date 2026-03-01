@@ -51,8 +51,58 @@
     <span style="color:var(--text-muted)">⊞</span>
     <span class="gcard-title">Lista de tareas</span>
     <span id="cnt-badge" class="badge-g badge-pending ms-auto" style="font-size:.68rem;"></span>
+    <button id="btn-restaurar" onclick="abrirRestaurar()" title="Restaurar desde copia de seguridad"
+            style="margin-left:.4rem; background:none; border:1px solid var(--border);
+                   color:var(--text-muted); border-radius:6px; padding:.2rem .6rem;
+                   font-size:.75rem; cursor:pointer; display:flex; align-items:center; gap:.3rem;
+                   transition: all .2s;"
+            onmouseover="this.style.borderColor='#e57373';this.style.color='#e57373'"
+            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-muted)'">
+      🔄 Restaurar
+    </button>
+    <button id="btn-backup" onclick="hacerBackup()" title="Guardar copia de seguridad ahora"
+            style="margin-left:.75rem; background:none; border:1px solid var(--border);
+                   color:var(--text-muted); border-radius:6px; padding:.2rem .6rem;
+                   font-size:.75rem; cursor:pointer; display:flex; align-items:center; gap:.3rem;
+                   transition: all .2s;"
+            onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-muted)'">
+      💾 <span id="backup-label">Backup</span>
+    </button>
+  </div>
+  <!-- Toast backup -->
+  <div id="backup-toast" style="display:none; position:fixed; bottom:1.5rem; right:1.5rem;
+       background:var(--bg2,#1e1e1e); border:1px solid var(--border); border-radius:8px;
+       padding:.75rem 1.2rem; font-size:.82rem; color:var(--text-muted);
+       box-shadow:0 4px 20px rgba(0,0,0,.4); z-index:9999; max-width:320px;">
+    <span id="backup-toast-msg">💾 Backup completado</span>
   </div>
   <div class="gcard-body pb-0">
+
+
+  <!-- Modal restaurar backup -->
+  <div id="modal-restaurar" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+       z-index:10000; align-items:center; justify-content:center;">
+    <div style="background:var(--bg2,#1e1e1e); border:1px solid var(--border); border-radius:12px;
+                padding:1.5rem; width:min(480px,92vw); box-shadow:0 8px 32px rgba(0,0,0,.5);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <span style="font-weight:600; font-size:1rem; color:var(--text,#f0f0f0);">🔄 Restaurar backup</span>
+        <button onclick="cerrarRestaurar()" style="background:none;border:none;color:var(--text-muted);
+                font-size:1.2rem;cursor:pointer;">✕</button>
+      </div>
+      <p style="font-size:.8rem; color:#e57373; margin-bottom:1rem;">
+        ⚠ Esto <strong>reemplazará todos los datos actuales</strong> con los del backup seleccionado.
+      </p>
+      <div id="lista-backups" style="max-height:240px; overflow-y:auto; margin-bottom:1rem;">
+        <p style="color:var(--text-muted); font-size:.82rem;">Cargando backups…</p>
+      </div>
+      <div style="display:flex; gap:.5rem; justify-content:flex-end;">
+        <button onclick="cerrarRestaurar()" class="btn btn-g-ghost btn-sm">Cancelar</button>
+        <button id="btn-confirmar-restaurar" onclick="confirmarRestaurar()" class="btn btn-g-danger btn-sm"
+                disabled style="opacity:.5;">🔄 Restaurar seleccionado</button>
+      </div>
+    </div>
+  </div>
 
     <!-- Filter bar -->
     <form id="filter-form" method="get" action="/">
@@ -384,5 +434,120 @@
     row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
   };
 })();
+
+  // ── Backup manual ─────────────────────────────────────────────────────
+  // ── Restaurar backup ──────────────────────────────────────────────────
+  let _archivoSeleccionado = null;
+
+  window.abrirRestaurar = async function () {
+    _archivoSeleccionado = null;
+    document.getElementById('btn-confirmar-restaurar').disabled = true;
+    document.getElementById('btn-confirmar-restaurar').style.opacity = '.5';
+    document.getElementById('modal-restaurar').style.display = 'flex';
+
+    const lista = document.getElementById('lista-backups');
+    lista.innerHTML = '<p style="color:var(--text-muted);font-size:.82rem;">Cargando…</p>';
+
+    try {
+      const res   = await fetch('/backup/lista');
+      const files = await res.json();
+      if (!files.length) {
+        lista.innerHTML = '<p style="color:var(--text-muted);font-size:.82rem;">No hay backups disponibles.</p>';
+        return;
+      }
+      lista.innerHTML = files.map(f => `
+        <label style="display:flex;align-items:center;gap:.6rem;padding:.45rem .5rem;
+               border-radius:6px;cursor:pointer;font-size:.8rem;color:var(--text-muted);
+               border:1px solid transparent;margin-bottom:.3rem;"
+               onmouseover="this.style.background='var(--bg3,#2a2a2a)'"
+               onmouseout="this.style.background='none'">
+          <input type="radio" name="backup-file" value="${f}"
+                 onchange="seleccionarBackup('${f}', this.closest('label'))"
+                 style="accent-color:var(--accent);">
+          <span style="flex:1">${f}</span>
+          <span style="font-size:.7rem;opacity:.6">${f.includes('manual') ? '👤' : '🤖'}</span>
+        </label>`).join('');
+    } catch(e) {
+      lista.innerHTML = '<p style="color:#e57373;font-size:.82rem;">Error cargando backups.</p>';
+    }
+  };
+
+  window.seleccionarBackup = function(archivo, label) {
+    _archivoSeleccionado = archivo;
+    document.querySelectorAll('#lista-backups label').forEach(l => l.style.border = '1px solid transparent');
+    label.style.border = '1px solid var(--accent)';
+    const btn = document.getElementById('btn-confirmar-restaurar');
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  };
+
+  window.cerrarRestaurar = function () {
+    document.getElementById('modal-restaurar').style.display = 'none';
+  };
+
+  window.confirmarRestaurar = async function () {
+    if (!_archivoSeleccionado) return;
+    if (!confirm(`¿Restaurar "${_archivoSeleccionado}"?\n\nEsto reemplazará TODOS los datos actuales.`)) return;
+
+    const btn = document.getElementById('btn-confirmar-restaurar');
+    btn.textContent = 'Restaurando…';
+    btn.disabled = true;
+
+    try {
+      const res  = await fetch('/backup/restaurar', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({archivo: _archivoSeleccionado})
+      });
+      const data = await res.json();
+      if (data.ok) {
+        cerrarRestaurar();
+        const toast = document.getElementById('backup-toast');
+        const msg   = document.getElementById('backup-toast-msg');
+        msg.textContent = `✅ Restaurado: ${data.registros} registros. Recargando…`;
+        msg.style.color = '#6abf69';
+        toast.style.display = 'block';
+        setTimeout(() => location.reload(), 2000);
+      } else {
+        alert('Error al restaurar: ' + data.error);
+        btn.textContent = '🔄 Restaurar seleccionado';
+        btn.disabled = false;
+      }
+    } catch(e) {
+      alert('Error de conexión');
+      btn.textContent = '🔄 Restaurar seleccionado';
+      btn.disabled = false;
+    }
+  };
+
+  window.hacerBackup = async function () {
+    const btn   = document.getElementById('btn-backup');
+    const label = document.getElementById('backup-label');
+    const toast = document.getElementById('backup-toast');
+    const msg   = document.getElementById('backup-toast-msg');
+
+    label.textContent = 'Guardando…';
+    btn.disabled = true;
+
+    try {
+      const res  = await fetch('/backup', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        msg.textContent = '✅ Backup guardado: ' + data.archivo;
+        msg.style.color = '#6abf69';
+      } else {
+        msg.textContent = '❌ Error: ' + data.error;
+        msg.style.color = '#e57373';
+      }
+    } catch (e) {
+      msg.textContent = '❌ Error de conexión';
+      msg.style.color = '#e57373';
+    }
+
+    toast.style.display = 'block';
+    label.textContent   = 'Backup';
+    btn.disabled        = false;
+    setTimeout(() => { toast.style.display = 'none'; }, 4000);
+  };
 </script>
 {% endblock %}

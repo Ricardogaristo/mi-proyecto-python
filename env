@@ -1,0 +1,11 @@
+# ── Configuración de MariaDB ──────────────────────────────────────
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=gestor_tareas
+DB_USER=root
+DB_PASSWORD=1234
+
+# ── Flask ─────────────────────────────────────────────────────────
+SECRET_KEY=cambia_esto_por_una_clave_aleatoria_segura
+FLASK_ENV=production
+FLASK_DEBUG=0
