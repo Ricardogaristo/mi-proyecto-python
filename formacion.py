@@ -1,13 +1,11 @@
 """
 formacion.py  —  Módulo de Formación para el Gestor de Tareas
-Base de datos: MariaDB (misma BD que app_web.py)
+Base de datos: PostgreSQL en Render / MariaDB en local
 """
 
 from flask import Blueprint, render_template, request, redirect, session, url_for, jsonify, send_file, abort, current_app
 from functools import wraps
 from datetime import datetime
-import pymysql
-import pymysql.cursors
 import openpyxl
 import io
 import os
@@ -15,6 +13,17 @@ import unicodedata
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ── Detección de motor de BD ───────────────────────────────────────────────────
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+_USE_PG = bool(DATABASE_URL)
+
+if _USE_PG:
+    import psycopg2
+    import psycopg2.extras
+else:
+    import pymysql
+    import pymysql.cursors
 
 # ── Blueprint ──────────────────────────────────────────────────────────────────
 formacion_bp = Blueprint(
@@ -33,14 +42,18 @@ def login_required(f):
 
 # ── Conexión ───────────────────────────────────────────────────────────────────
 def get_form_conn():
+    if _USE_PG:
+        return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return pymysql.connect(
-        host=os.environ.get("DB_HOST", "postgresql://ricardo:jdyYSeYzq3Ka3Bohw5BUPu16J8iXfBnA@dpg-d6i9g1a4d50c73fr56rg-a.oregon-postgres.render.com/gestor_tareas_5955"),
-        port=int(os.environ.get("DB_PORT", 5432)),
-        user=os.environ.get("DB_USER", "ricardo"),
-        password=os.environ.get("DB_PASSWORD", "jdyYSeYzq3Ka3Bohw5BUPu16J8iXfBnA"),
-        database=os.environ.get("DB_NAME", "gestor_tareas_5955"),
+        host=os.getenv("DB_HOST", "localhost"),
+        port=int(os.getenv("DB_PORT", 3306)),
+        db=os.getenv("DB_NAME", "gestor_tareas"),
+        user=os.getenv("DB_USER", "gestor_user"),
+        password=os.getenv("DB_PASSWORD", ""),
+        charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
     )
+
 # ── Inicialización de tablas ───────────────────────────────────────────────────
 def inicializar_formacion():
     conn = get_form_conn()
@@ -947,7 +960,7 @@ def exportar_excel():
     for i, w in enumerate([5,32,22,14,10,14,14,12,18,16,18], 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
-    # ── Hoja 2 — Resumen por curso (simplificada) ──
+    # ── Hoja 2 — Resumen por curso ──
     from collections import defaultdict
     ws2 = wb.create_sheet("Resumen por Curso")
     ws2.merge_cells("A1:H1"); c2 = ws2["A1"]
