@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: gestor-tareas
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app_web:app --bind 0.0.0.0:$PORT --workers 2
+    envVars:
+      - key: FLASK_DEBUG
+        value: "0"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DB_HOST
+        fromDatabase:
+          name: gestor-tareas-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: gestor-tareas-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: gestor-tareas-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: gestor-tareas-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: gestor-tareas-db
+          property: password
+
+databases:
+  - name: gestor-tareas-db
+    databaseName: gestor_tareas
+    user: gestor_user
+    plan: free
