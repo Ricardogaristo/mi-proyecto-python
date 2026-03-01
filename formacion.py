@@ -6,16 +6,15 @@ Base de datos: MariaDB (misma BD que app_web.py)
 from flask import Blueprint, render_template, request, redirect, session, url_for, jsonify, send_file, abort, current_app
 from functools import wraps
 from datetime import datetime
-import openpyxl, io, os, unicodedata
+import pymysql
+import pymysql.cursors
+import openpyxl
+import io
+import os
+import unicodedata
 from dotenv import load_dotenv
-load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-_USE_PG = bool(DATABASE_URL)
-if _USE_PG:
-    import psycopg2, psycopg2.extras
-else:
-    import pymysql, pymysql.cursors
+load_dotenv()
 
 # ── Blueprint ──────────────────────────────────────────────────────────────────
 formacion_bp = Blueprint(
@@ -34,75 +33,130 @@ def login_required(f):
 
 # ── Conexión ───────────────────────────────────────────────────────────────────
 def get_form_conn():
-    if _USE_PG:
-        return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return pymysql.connect(
-        host="localhost", port=3306, db="gestor_tareas",
-        user="root", password="", charset="utf8mb4",
+        host="localhost",
+        port=3306,
+        db="gestor_tareas",
+        user="root",
+        password="",
+        charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
     )
 # ── Inicialización de tablas ───────────────────────────────────────────────────
 def inicializar_formacion():
     conn = get_form_conn()
     with conn.cursor() as cursor:
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS alumnos (
-                id           INT           NOT NULL AUTO_INCREMENT,
-                curso        VARCHAR(200),
-                nombre       VARCHAR(200)  NOT NULL,
-                progreso     DECIMAL(5,2)  NOT NULL DEFAULT 0.00,
-                examenes     INT           NOT NULL DEFAULT 0,
-                fecha_inicio DATE,
-                fecha_fin    DATE,
-                supera_75    TINYINT(1)    NOT NULL DEFAULT 0,
-                telefono     VARCHAR(30),
-                tutor_id     INT,
-                archivado    TINYINT(1)    NOT NULL DEFAULT 0,
-                archivado_at DATETIME,
-                created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS historial_snapshots (
-                id           INT          NOT NULL AUTO_INCREMENT,
-                tutor_id     INT,
-                fecha        VARCHAR(20),
-                label        VARCHAR(200),
-                total        INT,
-                superan_75   INT,
-                pct_exito    DECIMAL(5,2),
-                avg_progreso DECIMAL(5,2),
-                created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS historial_automatico (
-                id             INT  NOT NULL AUTO_INCREMENT,
-                tutor_id       INT,
-                fecha          VARCHAR(20),
-                evento         VARCHAR(300),
-                total_alumnos  INT,
-                total_cursos   INT,
-                created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS alarmas_completadas (
-                id         INT         NOT NULL AUTO_INCREMENT,
-                tutor_id   INT         NOT NULL,
-                clave      VARCHAR(200) NOT NULL,
-                fecha_dia  DATE        NOT NULL,
-                created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY uq_alarma (tutor_id, clave, fecha_dia)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        """)
+        if _USE_PG:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS alumnos (
+                    id           SERIAL PRIMARY KEY,
+                    curso        VARCHAR(200),
+                    nombre       VARCHAR(200)  NOT NULL,
+                    progreso     NUMERIC(5,2)  NOT NULL DEFAULT 0.00,
+                    examenes     INT           NOT NULL DEFAULT 0,
+                    fecha_inicio DATE,
+                    fecha_fin    DATE,
+                    supera_75    SMALLINT      NOT NULL DEFAULT 0,
+                    telefono     VARCHAR(30),
+                    tutor_id     INT,
+                    archivado    SMALLINT      NOT NULL DEFAULT 0,
+                    archivado_at TIMESTAMP,
+                    created_at   TIMESTAMP     NOT NULL DEFAULT NOW()
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS historial_snapshots (
+                    id           SERIAL PRIMARY KEY,
+                    tutor_id     INT,
+                    fecha        VARCHAR(20),
+                    label        VARCHAR(200),
+                    total        INT,
+                    superan_75   INT,
+                    pct_exito    NUMERIC(5,2),
+                    avg_progreso NUMERIC(5,2),
+                    created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS historial_automatico (
+                    id            SERIAL PRIMARY KEY,
+                    tutor_id      INT,
+                    fecha         VARCHAR(20),
+                    evento        VARCHAR(300),
+                    total_alumnos INT,
+                    total_cursos  INT,
+                    created_at    TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS alarmas_completadas (
+                    id         SERIAL PRIMARY KEY,
+                    tutor_id   INT          NOT NULL,
+                    clave      VARCHAR(200) NOT NULL,
+                    fecha_dia  DATE         NOT NULL,
+                    created_at TIMESTAMP    NOT NULL DEFAULT NOW(),
+                    UNIQUE (tutor_id, clave, fecha_dia)
+                )
+            """)
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS alumnos (
+                    id           INT NOT NULL AUTO_INCREMENT,
+                    curso        VARCHAR(200),
+                    nombre       VARCHAR(200) NOT NULL,
+                    progreso     DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+                    examenes     INT NOT NULL DEFAULT 0,
+                    fecha_inicio DATE,
+                    fecha_fin    DATE,
+                    supera_75    TINYINT(1) NOT NULL DEFAULT 0,
+                    telefono     VARCHAR(30),
+                    tutor_id     INT,
+                    archivado    TINYINT(1) NOT NULL DEFAULT 0,
+                    archivado_at DATETIME,
+                    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS historial_snapshots (
+                    id           INT NOT NULL AUTO_INCREMENT,
+                    tutor_id     INT,
+                    fecha        VARCHAR(20),
+                    label        VARCHAR(200),
+                    total        INT,
+                    superan_75   INT,
+                    pct_exito    DECIMAL(5,2),
+                    avg_progreso DECIMAL(5,2),
+                    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS historial_automatico (
+                    id            INT NOT NULL AUTO_INCREMENT,
+                    tutor_id      INT,
+                    fecha         VARCHAR(20),
+                    evento        VARCHAR(300),
+                    total_alumnos INT,
+                    total_cursos  INT,
+                    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS alarmas_completadas (
+                    id         INT NOT NULL AUTO_INCREMENT,
+                    tutor_id   INT NOT NULL,
+                    clave      VARCHAR(200) NOT NULL,
+                    fecha_dia  DATE NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uq_alarma (tutor_id, clave, fecha_dia)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
     conn.commit()
     conn.close()
-    print("✅ Tablas de formación inicializadas en MariaDB.")
+    print("✅ Tablas de formación inicializadas.")
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def _registrar_evento_historico(tutor_id, evento, conn):
@@ -672,10 +726,16 @@ def alarma_completar():
                 (tutor_id, clave, hoy)
             )
         else:
-            cursor.execute(
-                "INSERT IGNORE INTO alarmas_completadas (tutor_id, clave, fecha_dia) VALUES (%s,%s,%s)",
-                (tutor_id, clave, hoy)
-            )
+            if _USE_PG:
+                cursor.execute(
+                    "INSERT INTO alarmas_completadas (tutor_id, clave, fecha_dia) VALUES (%s,%s,%s) ON CONFLICT (tutor_id, clave, fecha_dia) DO NOTHING",
+                    (tutor_id, clave, hoy)
+                )
+            else:
+                cursor.execute(
+                    "INSERT IGNORE INTO alarmas_completadas (tutor_id, clave, fecha_dia) VALUES (%s,%s,%s)",
+                    (tutor_id, clave, hoy)
+                )
     conn.commit()
     conn.close()
     return redirect(url_for("formacion.formacion_alarmas"))
