@@ -82,7 +82,7 @@ def inicializar_todo():
         else:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS usuarios (
-                    id        INT NOT NULL AUTO_INCREMENT,
+                    id        SERIAL PRIMARY KEY,
                     username  VARCHAR(100) NOT NULL,
                     email     VARCHAR(255),
                     password  VARCHAR(255) NOT NULL,
@@ -94,7 +94,7 @@ def inicializar_todo():
             """)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS tareas (
-                    id          INT NOT NULL AUTO_INCREMENT,
+                    id          SERIAL PRIMARY KEY,
                     descripcion TEXT NOT NULL,
                     categoria   VARCHAR(150),
                     fecha       DATE,
@@ -110,7 +110,7 @@ def inicializar_todo():
             """)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS subtareas (
-                    id       INT NOT NULL AUTO_INCREMENT,
+                    id       SERIAL PRIMARY KEY,
                     tarea_id INT NOT NULL,
                     texto    TEXT NOT NULL,
                     hecha    TINYINT(1) NOT NULL DEFAULT 0,

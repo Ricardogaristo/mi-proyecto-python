@@ -34,12 +34,11 @@ def login_required(f):
 # ── Conexión ───────────────────────────────────────────────────────────────────
 def get_form_conn():
     return pymysql.connect(
-        host="localhost",
-        port=3306,
-        db="gestor_tareas",
-        user="root",
-        password="",
-        charset="utf8mb4",
+        host=os.environ.get("DB_HOST", "postgresql://ricardo:jdyYSeYzq3Ka3Bohw5BUPu16J8iXfBnA@dpg-d6i9g1a4d50c73fr56rg-a.oregon-postgres.render.com/gestor_tareas_5955"),
+        port=int(os.environ.get("DB_PORT", 5432)),
+        user=os.environ.get("DB_USER", "ricardo"),
+        password=os.environ.get("DB_PASSWORD", "jdyYSeYzq3Ka3Bohw5BUPu16J8iXfBnA"),
+        database=os.environ.get("DB_NAME", "gestor_tareas_5955"),
         cursorclass=pymysql.cursors.DictCursor,
     )
 # ── Inicialización de tablas ───────────────────────────────────────────────────
