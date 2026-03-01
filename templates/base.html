@@ -480,13 +480,47 @@
 
     /* ── Anti-flash: evita que Bootstrap pinte links en negro
        antes de que cargue components.css                    ── */
+    * { -webkit-tap-highlight-color: transparent; }
+
     a { color: inherit; }
-    .nav-link, .nav-link:visited { color: var(--text-muted) !important; }
-    .nav-link:hover, .nav-link.active { color: var(--accent) !important; }
+    a:link, a:visited, a:hover, a:active, a:focus { color: inherit !important; }
+
+    /* Fuerza variables Bootstrap link a heredar el tema */
+    :root {
+      --bs-link-color: var(--text-muted);
+      --bs-link-color-rgb: 125, 133, 144;
+      --bs-link-hover-color: var(--text);
+    }
+
+    .nav-link,
+    .nav-link:link,
+    .nav-link:visited,
+    .nav-link:active,
+    .nav-link:focus  { color: var(--text-muted) !important; background: transparent; }
+    .nav-link:hover,
+    .nav-link.active { color: var(--accent) !important; background: var(--bg3); }
+
+    /* Botón toggler sin flash */
+    .navbar-toggler        { color: var(--text-muted) !important; }
+    .navbar-toggler:focus  { box-shadow: none; outline: none; }
+    .navbar-toggler:active { background: transparent !important; }
   </style>
 
   <!-- Estilos especificos de vistas (cacheados) -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}?v=1">
+
+  <!-- Anti-flash: aplica el tema ANTES de pintar nada -->
+  <script>
+    (function(){
+      if(localStorage.getItem('theme')!=='dark') document.documentElement.classList.add('light-init');
+    })();
+  </script>
+  <style>
+    html.light-init body { --bg:#d7d7d7; --bg2:#ffffff; --bg3:#f0f2f5; --border:#d0d7de; --border-soft:#e8eaed; --text:#1f2328; --text-muted:#636c76; --text-dim:#adb5bd; }
+    html.light-init body { background: #d7d7d7; color: #1f2328; }
+    html.light-init .navbar { background: rgba(246,248,250,.94) !important; }
+    html.light-init .nav-link { color: #636c76 !important; }
+  </style>
 </head>
 <body>
 
@@ -588,7 +622,10 @@
 <script>
   // ── Theme toggle ──────────────────────────────
   (function(){
-    if(localStorage.getItem('theme')==='light') document.body.classList.add('light');
+    if(localStorage.getItem('theme')!=='dark'){
+      document.body.classList.add('light');
+    }
+    document.documentElement.classList.remove('light-init');
   })();
   function toggleLight(){
     document.body.classList.toggle('light');
