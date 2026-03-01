@@ -6,15 +6,20 @@ Base de datos: MariaDB (misma BD que app_web.py)
 from flask import Blueprint, render_template, request, redirect, session, url_for, jsonify, send_file, abort, current_app
 from functools import wraps
 from datetime import datetime
-import pymysql
-import pymysql.cursors
 import openpyxl
 import io
 import os
 import unicodedata
 from dotenv import load_dotenv
-
 load_dotenv()
+
+# Detección igual que app_web.py - usa DATABASE_URL si existe
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+_USE_PG = bool(DATABASE_URL)
+if _USE_PG:
+    import psycopg2, psycopg2.extras
+else:
+    import pymysql, pymysql.cursors
 
 # ── Blueprint ──────────────────────────────────────────────────────────────────
 formacion_bp = Blueprint(
@@ -33,19 +38,75 @@ def login_required(f):
 
 # ── Conexión ───────────────────────────────────────────────────────────────────
 def get_form_conn():
-    return pymysql.connect(
-        host="localhost",
-        port=3306,
-        db="gestor_tareas",
-        user="root",
-        password="",
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
-    )
+    if _USE_PG:
+        return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    else:
+        return pymysql.connect(
+            host="localhost",
+            port=3306,
+            db="gestor_tareas",
+            user="root",
+            password="",
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+        )
 # ── Inicialización de tablas ───────────────────────────────────────────────────
 def inicializar_formacion():
     conn = get_form_conn()
     with conn.cursor() as cursor:
+      if _USE_PG:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alumnos (
+                id           SERIAL PRIMARY KEY,
+                curso        VARCHAR(200),
+                nombre       VARCHAR(200)  NOT NULL,
+                progreso     NUMERIC(5,2)  NOT NULL DEFAULT 0.00,
+                examenes     INT           NOT NULL DEFAULT 0,
+                fecha_inicio DATE,
+                fecha_fin    DATE,
+                supera_75    SMALLINT      NOT NULL DEFAULT 0,
+                telefono     VARCHAR(30),
+                tutor_id     INT,
+                archivado    SMALLINT      NOT NULL DEFAULT 0,
+                archivado_at TIMESTAMP,
+                created_at   TIMESTAMP     NOT NULL DEFAULT NOW()
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS historial_snapshots (
+                id           SERIAL PRIMARY KEY,
+                tutor_id     INT,
+                fecha        VARCHAR(20),
+                label        VARCHAR(200),
+                total        INT,
+                superan_75   INT,
+                pct_exito    NUMERIC(5,2),
+                avg_progreso NUMERIC(5,2),
+                created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS historial_automatico (
+                id             SERIAL PRIMARY KEY,
+                tutor_id       INT,
+                fecha          VARCHAR(20),
+                evento         VARCHAR(300),
+                total_alumnos  INT,
+                total_cursos   INT,
+                created_at     TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alarmas_completadas (
+                id         SERIAL PRIMARY KEY,
+                tutor_id   INT          NOT NULL,
+                clave      VARCHAR(200) NOT NULL,
+                fecha_dia  DATE         NOT NULL,
+                created_at TIMESTAMP    NOT NULL DEFAULT NOW(),
+                UNIQUE (tutor_id, clave, fecha_dia)
+            )
+        """)
+      else:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS alumnos (
                 id           INT           NOT NULL AUTO_INCREMENT,

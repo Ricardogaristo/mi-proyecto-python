@@ -1,11 +1,21 @@
-# ── Configuración de MariaDB ──────────────────────────────────────
-DB_HOST=postgresql://ricardo:jdyYSeYzq3Ka3Bohw5BUPu16J8iXfBnA@dpg-d6i9g1a4d50c73fr56rg-a.oregon-postgres.render.com/gestor_tareas_5955
-DB_PORT=5432
-DB_NAME=gestor_tareas_5955
-DB_USER=ricardo
-DB_PASSWORD=jdyYSeYzq3Ka3Bohw5BUPu16J8iXfBnA
+# ─────────────────────────────────────────────────────────
+# CONFIGURACIÓN DE BASE DE DATOS
+# ─────────────────────────────────────────────────────────
+#
+# RENDER (nube):
+#   Copiá la "Internal Database URL" desde:
+#   Render → tu BD PostgreSQL → Info → Internal Database URL
+#   Tiene este formato: postgresql://usuario:password@hostname/database
+#
+# LOCAL (tu PC):
+#   Dejá DATABASE_URL vacío o comentado → usará MariaDB automáticamente
+#
+# ─────────────────────────────────────────────────────────
 
-# ── Flask ─────────────────────────────────────────────────────────
-SECRET_KEY=cambia_esto_por_una_clave_aleatoria_segura
-FLASK_ENV=production
+DATABASE_URL=postgresql://ricardo:jdyYSeYzq3Ka3Bohw5BUPu16J8iXfBnA@dpg-d6i9g1a4d50c73fr56rg-a/gestor_tareas_5955
+
+# Clave secreta de Flask (cambiala por algo aleatorio largo)
+SECRET_KEY=cambia_esto_por_una_clave_larga_y_secreta
+
+# Debug: 0 en producción, 1 en desarrollo local
 FLASK_DEBUG=0

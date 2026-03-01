@@ -1,14 +1,28 @@
-from flask import Flask, render_template, request, redirect, session, send_file, url_for
-import pymysql
-import pymysql.cursors
+from flask import Flask, render_template, request, redirect, session, send_file, url_for, jsonify
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 from functools import wraps
 from datetime import datetime
 from collections import defaultdict
 import io
-import os
+import json
+import threading
+import time
 
-from dotenv import load_dotenv
-load_dotenv()
+# ── Detección de base de datos ─────────────────────────────────────────────
+# Render inyecta DATABASE_URL automáticamente cuando vinculás la BD
+# En local no existe → usa MariaDB
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+_USE_PG = bool(DATABASE_URL)
+
+if _USE_PG:
+    import psycopg2
+    import psycopg2.extras
+else:
+    import pymysql
+    import pymysql.cursors
 
 # Para crear Excel bonito
 from openpyxl import Workbook
@@ -28,67 +42,108 @@ app.register_blueprint(formacion_bp)
 # --- BASE DE DATOS ---
 
 def get_connection():
-    return pymysql.connect(
-        host="localhost",
-        port=3306,
-        db="gestor_tareas",
-        user="root",
-        password="",
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
-    )
+    if _USE_PG:
+        return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    else:
+        return pymysql.connect(
+            host="localhost",
+            port=3306,
+            db="gestor_tareas",
+            user="root",
+            password="",
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+        )
 
 def inicializar_todo():
     conn = get_connection()
     with conn.cursor() as cursor:
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS usuarios (
-                id        INT          NOT NULL AUTO_INCREMENT,
-                username  VARCHAR(100) NOT NULL,
-                email     VARCHAR(255),
-                password  VARCHAR(255) NOT NULL,
-                es_admin  TINYINT(1)   NOT NULL DEFAULT 0,
-                PRIMARY KEY (id),
-                UNIQUE KEY uq_username (username),
-                UNIQUE KEY uq_email    (email)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS tareas (
-                id          INT  NOT NULL AUTO_INCREMENT,
-                descripcion TEXT NOT NULL,
-                categoria   VARCHAR(150),
-                fecha       DATE,
-                completada  TINYINT(1)  NOT NULL DEFAULT 0,
-                codigo      VARCHAR(50),
-                usuario_id  INT,
-                prioridad   TINYINT     NOT NULL DEFAULT 2,
-                favorita    TINYINT(1)  NOT NULL DEFAULT 0,
-                notas       TEXT,
-                PRIMARY KEY (id),
-                CONSTRAINT fk_tarea_usuario
-                    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS subtareas (
-                id       INT  NOT NULL AUTO_INCREMENT,
-                tarea_id INT  NOT NULL,
-                texto    TEXT NOT NULL,
-                hecha    TINYINT(1) NOT NULL DEFAULT 0,
-                PRIMARY KEY (id),
-                CONSTRAINT fk_subtarea_tarea
-                    FOREIGN KEY (tarea_id) REFERENCES tareas(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        """)
-        # Admin por defecto
-        cursor.execute("""
-            INSERT IGNORE INTO usuarios (username, email, password, es_admin)
-            VALUES (%s, %s, %s, %s)
-        """, ("admin", "admin@correo.com", "1234", 1))
+        if _USE_PG:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id        SERIAL PRIMARY KEY,
+                    username  VARCHAR(100) NOT NULL UNIQUE,
+                    email     VARCHAR(255) UNIQUE,
+                    password  VARCHAR(255) NOT NULL,
+                    es_admin  SMALLINT NOT NULL DEFAULT 0
+                )
+            """)
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id        INT          NOT NULL AUTO_INCREMENT,
+                    username  VARCHAR(100) NOT NULL,
+                    email     VARCHAR(255),
+                    password  VARCHAR(255) NOT NULL,
+                    es_admin  TINYINT(1)   NOT NULL DEFAULT 0,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uq_username (username),
+                    UNIQUE KEY uq_email    (email)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+        if _USE_PG:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tareas (
+                    id          SERIAL PRIMARY KEY,
+                    descripcion TEXT NOT NULL,
+                    categoria   VARCHAR(150),
+                    fecha       DATE,
+                    completada  SMALLINT NOT NULL DEFAULT 0,
+                    codigo      VARCHAR(50),
+                    usuario_id  INT REFERENCES usuarios(id) ON DELETE SET NULL,
+                    prioridad   SMALLINT NOT NULL DEFAULT 2,
+                    favorita    SMALLINT NOT NULL DEFAULT 0,
+                    notas       TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS subtareas (
+                    id       SERIAL PRIMARY KEY,
+                    tarea_id INT NOT NULL REFERENCES tareas(id) ON DELETE CASCADE,
+                    texto    TEXT NOT NULL,
+                    hecha    SMALLINT NOT NULL DEFAULT 0
+                )
+            """)
+            cursor.execute("""
+                INSERT INTO usuarios (username, email, password, es_admin)
+                VALUES (%s, %s, %s, %s) ON CONFLICT (username) DO NOTHING
+            """, ("admin", "admin@correo.com", "1234", 1))
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tareas (
+                    id          INT  NOT NULL AUTO_INCREMENT,
+                    descripcion TEXT NOT NULL,
+                    categoria   VARCHAR(150),
+                    fecha       DATE,
+                    completada  TINYINT(1)  NOT NULL DEFAULT 0,
+                    codigo      VARCHAR(50),
+                    usuario_id  INT,
+                    prioridad   TINYINT     NOT NULL DEFAULT 2,
+                    favorita    TINYINT(1)  NOT NULL DEFAULT 0,
+                    notas       TEXT,
+                    PRIMARY KEY (id),
+                    CONSTRAINT fk_tarea_usuario
+                        FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS subtareas (
+                    id       INT  NOT NULL AUTO_INCREMENT,
+                    tarea_id INT  NOT NULL,
+                    texto    TEXT NOT NULL,
+                    hecha    TINYINT(1) NOT NULL DEFAULT 0,
+                    PRIMARY KEY (id),
+                    CONSTRAINT fk_subtarea_tarea
+                        FOREIGN KEY (tarea_id) REFERENCES tareas(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            cursor.execute("""
+                INSERT IGNORE INTO usuarios (username, email, password, es_admin)
+                VALUES (%s, %s, %s, %s)
+            """, ("admin", "admin@correo.com", "1234", 1))
     conn.commit()
     conn.close()
-    print("✅ Base de datos MariaDB inicializada: Admin listo.")
+    print("✅ Base de datos inicializada: Admin listo.")
 
 
 # --- PROTECCIÓN DE RUTAS ---
@@ -870,8 +925,9 @@ def exportar():
     )
 
 
-# --- ARRANCAR ---
+# --- INICIALIZACIÓN (gunicorn + python directo) ---
+inicializar_todo()
+inicializar_formacion()
+
 if __name__ == "__main__":
-    inicializar_todo()
-    inicializar_formacion()
-    app.run(debug=os.getenv("FLASK_DEBUG","0")=="1", port=5000)
+    app.run(debug=os.getenv("FLASK_DEBUG","0")=="1", host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
