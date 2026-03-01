@@ -62,52 +62,50 @@ def inicializar_todo():
     with conn.cursor() as cursor:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
-                id        INT          NOT NULL AUTO_INCREMENT,
-                username  VARCHAR(100) NOT NULL,
-                email     VARCHAR(255),
+                id        {serial} PRIMARY KEY,
+                username  VARCHAR(100) NOT NULL UNIQUE,
+                email     VARCHAR(255) UNIQUE,
                 password  VARCHAR(255) NOT NULL,
-                es_admin  SMALLINT NOT NULL DEFAULT 0,
-                PRIMARY KEY (id),
-                UNIQUE KEY uq_username (username),
-                UNIQUE KEY uq_email    (email)
+                es_admin  SMALLINT NOT NULL DEFAULT 0
             )
-        """)
+        """.format(serial="SERIAL" if _USE_PG else "INT NOT NULL AUTO_INCREMENT"))
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tareas (
-                id          SERIAL NOT NULL,
+                id          {serial} PRIMARY KEY,
                 descripcion TEXT NOT NULL,
                 categoria   VARCHAR(150),
                 fecha       DATE,
                 completada  SMALLINT NOT NULL DEFAULT 0,
                 codigo      VARCHAR(50),
-                usuario_id  INT,
+                usuario_id  INT REFERENCES usuarios(id) ON DELETE SET NULL,
                 prioridad   SMALLINT NOT NULL DEFAULT 2,
                 favorita    SMALLINT NOT NULL DEFAULT 0,
-                notas       TEXT,
-                PRIMARY KEY (id),
-                CONSTRAINT fk_tarea_usuario
-                    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+                notas       TEXT
             )
-        """)
+        """.format(serial="SERIAL" if _USE_PG else "INT NOT NULL AUTO_INCREMENT"))
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS subtareas (
-                id       SERIAL NOT NULL,
-                tarea_id INT  NOT NULL,
+                id       {serial} PRIMARY KEY,
+                tarea_id INT NOT NULL REFERENCES tareas(id) ON DELETE CASCADE,
                 texto    TEXT NOT NULL,
-                hecha    SMALLINT NOT NULL DEFAULT 0,
-                PRIMARY KEY (id),
-                CONSTRAINT fk_subtarea_tarea
-                    FOREIGN KEY (tarea_id) REFERENCES tareas(id) ON DELETE CASCADE
+                hecha    SMALLINT NOT NULL DEFAULT 0
             )
-        """)
+        """.format(serial="SERIAL" if _USE_PG else "INT NOT NULL AUTO_INCREMENT"))
         # Admin por defecto
-        cursor.execute("""
-            INSERT INTO usuarios (username, email, password, es_admin)
-            VALUES (%s, %s, %s, %s)
-        """, ("admin", "admin@correo.com", "1234", 1))
+        if _USE_PG:
+            cursor.execute("""
+                INSERT INTO usuarios (username, email, password, es_admin)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (username) DO NOTHING
+            """, ("admin", "admin@correo.com", "1234", 1))
+        else:
+            cursor.execute("""
+                INSERT IGNORE INTO usuarios (username, email, password, es_admin)
+                VALUES (%s, %s, %s, %s)
+            """, ("admin", "admin@correo.com", "1234", 1))
     conn.commit()
     conn.close()
-    print("✅ Base de datos MariaDB inicializada: Admin listo.")
+    print("✅ Base de datos inicializada: Admin listo.")
 
 
 # --- PROTECCIÓN DE RUTAS ---
@@ -177,7 +175,11 @@ def registro():
             conn.commit()
             conn.close()
             return redirect(url_for("login"))
-        except (psycopg2.errors.UniqueViolation if _USE_PG else pymysql.err.IntegrityError):
+        except Exception as e:
+            conn.close()
+            if "unique" in str(e).lower() or "duplicate" in str(e).lower() or "1062" in str(e):
+                return render_template("registro.html", error="El usuario o email ya existe ❌")
+            raise
             conn.close()
             return render_template("registro.html", error="El usuario o email ya existe ❌")
 
