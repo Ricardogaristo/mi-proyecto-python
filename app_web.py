@@ -1,6 +1,4 @@
 from flask import Flask, render_template, request, redirect, session, send_file, url_for, jsonify
-import psycopg2
-import psycopg2.extras
 from functools import wraps
 from datetime import datetime
 import threading
@@ -10,7 +8,15 @@ from collections import defaultdict
 import io
 import os
 
-from dotenv import load_dotenv
+
+# Soporte dual: MariaDB (local) o PostgreSQL (Render)
+_USE_PG = bool(os.getenv("DB_HOST"))
+if _USE_PG:
+    import psycopg2
+    import psycopg2.extras
+else:
+    import pymysql
+    import pymysql.cursors
 load_dotenv()
 
 # Para crear Excel bonito
@@ -31,14 +37,25 @@ app.register_blueprint(formacion_bp)
 # --- BASE DE DATOS ---
 
 def get_connection():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", 5432)),
-        dbname=os.getenv("DB_NAME", "gestor_tareas"),
-        user=os.getenv("DB_USER", "postgres"),
-        password=os.getenv("DB_PASSWORD", ""),
-        cursor_factory=psycopg2.extras.RealDictCursor,
-    )
+    if _USE_PG:
+        return psycopg2.connect(
+            host=os.getenv("DB_HOST"),
+            port=int(os.getenv("DB_PORT", 5432)),
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            cursor_factory=psycopg2.extras.RealDictCursor,
+        )
+    else:
+        return pymysql.connect(
+            host="localhost",
+            port=3306,
+            db="gestor_tareas",
+            user="root",
+            password="",
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+        )
 
 def inicializar_todo():
     conn = get_connection()
@@ -160,7 +177,7 @@ def registro():
             conn.commit()
             conn.close()
             return redirect(url_for("login"))
-        except psycopg2.errors.UniqueViolation:
+        except (psycopg2.errors.UniqueViolation if _USE_PG else pymysql.err.IntegrityError):
             conn.close()
             return render_template("registro.html", error="El usuario o email ya existe ❌")
 

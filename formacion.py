@@ -6,8 +6,6 @@ Base de datos: MariaDB (misma BD que app_web.py)
 from flask import Blueprint, render_template, request, redirect, session, url_for, jsonify, send_file, abort, current_app
 from functools import wraps
 from datetime import datetime
-import psycopg2
-import psycopg2.extras
 import openpyxl
 import io
 import os
@@ -34,14 +32,28 @@ def login_required(f):
 # ── Conexión ───────────────────────────────────────────────────────────────────
 def get_form_conn():
     import os
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", 5432)),
-        dbname=os.getenv("DB_NAME", "gestor_tareas"),
-        user=os.getenv("DB_USER", "postgres"),
-        password=os.getenv("DB_PASSWORD", ""),
-        cursor_factory=psycopg2.extras.RealDictCursor,
-    )
+    _use_pg = bool(os.getenv("DB_HOST"))
+    if _use_pg:
+        import psycopg2, psycopg2.extras
+        return psycopg2.connect(
+            host=os.getenv("DB_HOST"),
+            port=int(os.getenv("DB_PORT", 5432)),
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            cursor_factory=psycopg2.extras.RealDictCursor,
+        )
+    else:
+        import pymysql, pymysql.cursors
+        return pymysql.connect(
+            host="localhost",
+            port=3306,
+            db="gestor_tareas",
+            user="root",
+            password="",
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+        )
 # ── Inicialización de tablas ───────────────────────────────────────────────────
 def inicializar_formacion():
     conn = get_form_conn()
