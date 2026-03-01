@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Soporte dual: MariaDB (local) o PostgreSQL (Render)
-_USE_PG = bool(os.getenv("DB_HOST"))
+# USE_POSTGRES=true en variables de entorno de Render fuerza PostgreSQL
+_USE_PG = os.getenv("USE_POSTGRES", "").lower() == "true" or bool(os.getenv("DATABASE_URL"))
 if _USE_PG:
     import psycopg2
     import psycopg2.extras
