@@ -6,6 +6,8 @@ Base de datos: MariaDB (misma BD que app_web.py)
 from flask import Blueprint, render_template, request, redirect, session, url_for, jsonify, send_file, abort, current_app
 from functools import wraps
 from datetime import datetime
+import pymysql
+import pymysql.cursors
 import openpyxl
 import io
 import os
@@ -31,29 +33,15 @@ def login_required(f):
 
 # ── Conexión ───────────────────────────────────────────────────────────────────
 def get_form_conn():
-    import os
-    _use_pg = bool(os.getenv("DB_HOST"))
-    if _use_pg:
-        import psycopg2, psycopg2.extras
-        return psycopg2.connect(
-            host=os.getenv("DB_HOST"),
-            port=int(os.getenv("DB_PORT", 5432)),
-            dbname=os.getenv("DB_NAME"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD"),
-            cursor_factory=psycopg2.extras.RealDictCursor,
-        )
-    else:
-        import pymysql, pymysql.cursors
-        return pymysql.connect(
-            host="localhost",
-            port=3306,
-            db="gestor_tareas",
-            user="root",
-            password="",
-            charset="utf8mb4",
-            cursorclass=pymysql.cursors.DictCursor,
-        )
+    return pymysql.connect(
+        host="localhost",
+        port=3306,
+        db="gestor_tareas",
+        user="root",
+        password="",
+        charset="utf8mb4",
+        cursorclass=pymysql.cursors.DictCursor,
+    )
 # ── Inicialización de tablas ───────────────────────────────────────────────────
 def inicializar_formacion():
     conn = get_form_conn()
@@ -63,7 +51,7 @@ def inicializar_formacion():
                 id           INT           NOT NULL AUTO_INCREMENT,
                 curso        VARCHAR(200),
                 nombre       VARCHAR(200)  NOT NULL,
-                progreso     NUMERIC(5,2)  NOT NULL DEFAULT 0.00,
+                progreso     DECIMAL(5,2)  NOT NULL DEFAULT 0.00,
                 examenes     INT           NOT NULL DEFAULT 0,
                 fecha_inicio DATE,
                 fecha_fin    DATE,
@@ -74,7 +62,7 @@ def inicializar_formacion():
                 archivado_at DATETIME,
                 created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (id)
-            )
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS historial_snapshots (
@@ -84,15 +72,15 @@ def inicializar_formacion():
                 label        VARCHAR(200),
                 total        INT,
                 superan_75   INT,
-                pct_exito    NUMERIC(5,2),
-                avg_progreso NUMERIC(5,2),
+                pct_exito    DECIMAL(5,2),
+                avg_progreso DECIMAL(5,2),
                 created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (id)
-            )
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS historial_automatico (
-                id             SERIAL NOT NULL,
+                id             INT  NOT NULL AUTO_INCREMENT,
                 tutor_id       INT,
                 fecha          VARCHAR(20),
                 evento         VARCHAR(300),
@@ -100,7 +88,7 @@ def inicializar_formacion():
                 total_cursos   INT,
                 created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (id)
-            )
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS alarmas_completadas (
@@ -111,7 +99,7 @@ def inicializar_formacion():
                 created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 UNIQUE KEY uq_alarma (tutor_id, clave, fecha_dia)
-            )
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """)
     conn.commit()
     conn.close()
@@ -686,7 +674,7 @@ def alarma_completar():
             )
         else:
             cursor.execute(
-                "INSERT INTO alarmas_completadas (tutor_id, clave, fecha_dia) VALUES (%s,%s,%s)",
+                "INSERT IGNORE INTO alarmas_completadas (tutor_id, clave, fecha_dia) VALUES (%s,%s,%s)",
                 (tutor_id, clave, hoy)
             )
     conn.commit()
