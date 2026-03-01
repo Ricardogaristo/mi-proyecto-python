@@ -1,28 +1,18 @@
 from flask import Flask, render_template, request, redirect, session, send_file, url_for, jsonify
-import os
-from dotenv import load_dotenv
-load_dotenv()
-
 from functools import wraps
 from datetime import datetime
 from collections import defaultdict
-import io
-import json
-import threading
-import time
+import io, os, json, threading, time
+from dotenv import load_dotenv
+load_dotenv()
 
-# ── Detección de base de datos ─────────────────────────────────────────────
-# Render inyecta DATABASE_URL automáticamente cuando vinculás la BD
-# En local no existe → usa MariaDB
+# ── BD: PostgreSQL en Render, MariaDB en local ─────────────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 _USE_PG = bool(DATABASE_URL)
-
 if _USE_PG:
-    import psycopg2
-    import psycopg2.extras
+    import psycopg2, psycopg2.extras
 else:
-    import pymysql
-    import pymysql.cursors
+    import pymysql, pymysql.cursors
 
 # Para crear Excel bonito
 from openpyxl import Workbook
@@ -44,16 +34,11 @@ app.register_blueprint(formacion_bp)
 def get_connection():
     if _USE_PG:
         return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    else:
-        return pymysql.connect(
-            host="localhost",
-            port=3306,
-            db="gestor_tareas",
-            user="root",
-            password="",
-            charset="utf8mb4",
-            cursorclass=pymysql.cursors.DictCursor,
-        )
+    return pymysql.connect(
+        host="localhost", port=3306, db="gestor_tareas",
+        user="root", password="", charset="utf8mb4",
+        cursorclass=pymysql.cursors.DictCursor,
+    )
 
 def inicializar_todo():
     conn = get_connection()
@@ -61,27 +46,13 @@ def inicializar_todo():
         if _USE_PG:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS usuarios (
-                    id        SERIAL PRIMARY KEY,
-                    username  VARCHAR(100) NOT NULL UNIQUE,
-                    email     VARCHAR(255) UNIQUE,
-                    password  VARCHAR(255) NOT NULL,
-                    es_admin  SMALLINT NOT NULL DEFAULT 0
+                    id       SERIAL PRIMARY KEY,
+                    username VARCHAR(100) NOT NULL UNIQUE,
+                    email    VARCHAR(255) UNIQUE,
+                    password VARCHAR(255) NOT NULL,
+                    es_admin SMALLINT NOT NULL DEFAULT 0
                 )
             """)
-        else:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS usuarios (
-                    id        INT          NOT NULL AUTO_INCREMENT,
-                    username  VARCHAR(100) NOT NULL,
-                    email     VARCHAR(255),
-                    password  VARCHAR(255) NOT NULL,
-                    es_admin  TINYINT(1)   NOT NULL DEFAULT 0,
-                    PRIMARY KEY (id),
-                    UNIQUE KEY uq_username (username),
-                    UNIQUE KEY uq_email    (email)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            """)
-        if _USE_PG:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS tareas (
                     id          SERIAL PRIMARY KEY,
@@ -106,44 +77,54 @@ def inicializar_todo():
             """)
             cursor.execute("""
                 INSERT INTO usuarios (username, email, password, es_admin)
-                VALUES (%s, %s, %s, %s) ON CONFLICT (username) DO NOTHING
-            """, ("admin", "admin@correo.com", "1234", 1))
+                VALUES (%s,%s,%s,%s) ON CONFLICT (username) DO NOTHING
+            """, ("admin","admin@correo.com","1234",1))
         else:
             cursor.execute("""
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id        INT NOT NULL AUTO_INCREMENT,
+                    username  VARCHAR(100) NOT NULL,
+                    email     VARCHAR(255),
+                    password  VARCHAR(255) NOT NULL,
+                    es_admin  TINYINT(1) NOT NULL DEFAULT 0,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uq_username (username),
+                    UNIQUE KEY uq_email (email)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS tareas (
-                    id          INT  NOT NULL AUTO_INCREMENT,
+                    id          INT NOT NULL AUTO_INCREMENT,
                     descripcion TEXT NOT NULL,
                     categoria   VARCHAR(150),
                     fecha       DATE,
-                    completada  TINYINT(1)  NOT NULL DEFAULT 0,
+                    completada  TINYINT(1) NOT NULL DEFAULT 0,
                     codigo      VARCHAR(50),
                     usuario_id  INT,
-                    prioridad   TINYINT     NOT NULL DEFAULT 2,
-                    favorita    TINYINT(1)  NOT NULL DEFAULT 0,
+                    prioridad   TINYINT NOT NULL DEFAULT 2,
+                    favorita    TINYINT(1) NOT NULL DEFAULT 0,
                     notas       TEXT,
                     PRIMARY KEY (id),
-                    CONSTRAINT fk_tarea_usuario
-                        FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+                    CONSTRAINT fk_tarea_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS subtareas (
-                    id       INT  NOT NULL AUTO_INCREMENT,
-                    tarea_id INT  NOT NULL,
+                    id       INT NOT NULL AUTO_INCREMENT,
+                    tarea_id INT NOT NULL,
                     texto    TEXT NOT NULL,
                     hecha    TINYINT(1) NOT NULL DEFAULT 0,
                     PRIMARY KEY (id),
-                    CONSTRAINT fk_subtarea_tarea
-                        FOREIGN KEY (tarea_id) REFERENCES tareas(id) ON DELETE CASCADE
+                    CONSTRAINT fk_subtarea_tarea FOREIGN KEY (tarea_id) REFERENCES tareas(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
             cursor.execute("""
                 INSERT IGNORE INTO usuarios (username, email, password, es_admin)
-                VALUES (%s, %s, %s, %s)
-            """, ("admin", "admin@correo.com", "1234", 1))
+                VALUES (%s,%s,%s,%s)
+            """, ("admin","admin@correo.com","1234",1))
     conn.commit()
     conn.close()
-    print("✅ Base de datos inicializada: Admin listo.")
+    print("✅ Base de datos inicializada.")
 
 
 # --- PROTECCIÓN DE RUTAS ---
@@ -213,9 +194,11 @@ def registro():
             conn.commit()
             conn.close()
             return redirect(url_for("login"))
-        except pymysql.err.IntegrityError:
+        except Exception as e:
             conn.close()
-            return render_template("registro.html", error="El usuario o email ya existe ❌")
+            if "unique" in str(e).lower() or "duplicate" in str(e).lower() or "1062" in str(e):
+                return render_template("registro.html", error="El usuario o email ya existe ❌")
+            raise
 
     return render_template("registro.html")
 
@@ -925,7 +908,7 @@ def exportar():
     )
 
 
-# --- INICIALIZACIÓN (gunicorn + python directo) ---
+# ── Inicialización (se ejecuta con gunicorn Y con python directo) ─────────
 inicializar_todo()
 inicializar_formacion()
 
